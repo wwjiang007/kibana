@@ -2,20 +2,21 @@ import { flatten } from 'lodash';
 module.exports = function (grunt) {
   grunt.registerTask('build', 'Build packages', function () {
     grunt.task.run(flatten([
+      // We specifically bootstrap Kibana to make sure all dependencies are
+      // up-to-date before kicking of the rest of the build process
+      'bootstrapKibana',
       'clean:build',
       'clean:target',
       '_build:downloadNodeBuilds',
       '_build:extractNodeBuilds',
       'copy:devSource',
-      'clean:devSourceForTestbed',
       'babel:build',
-      '_build:plugins',
-      '_build:data',
-      '_build:verifyTranslations',
+      '_build:createEmptyDirsAndFiles',
       '_build:packageJson',
       '_build:readme',
-      '_build:babelCache',
+      '_build:packages',
       '_build:installDependencies',
+      'clean:packages',
       '_build:notice',
       '_build:removePkgJsonDeps',
       'clean:testsFromModules',

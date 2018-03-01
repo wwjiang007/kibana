@@ -9,12 +9,24 @@
 export const IGNORE_FILE_GLOBS = [
   '.node-version',
   'docs/**/*',
-  'bin/**/*',
+  '**/bin/**/*',
   '**/+([A-Z_]).md',
   '**/*.txt',
   'Gruntfile.js',
   'tasks/config/**/*',
   'tasks/build/docker/docs/{Dockerfile,docker-compose.yml}',
+  'packages/kbn-pm/vendor/yarn-1.3.2.js'
+];
+
+
+/**
+ * These patterns are matched against directories and indicate
+ * folders that must use kebab case.
+ *
+ * @type {Array}
+ */
+export const KEBAB_CASE_DIRECTORY_GLOBS = [
+  'packages/*',
 ];
 
 
@@ -33,14 +45,16 @@ export const IGNORE_FILE_GLOBS = [
  * @type {Array}
  */
 export const IGNORE_DIRECTORY_GLOBS = [
+  ...KEBAB_CASE_DIRECTORY_GLOBS,
   '**/webpackShims',
   'src/babel-*',
-  'packages/eslint-*',
+  'packages/*',
   'ui_framework/generator-kui',
   'src/ui/public/angular-bootstrap',
   'src/ui/public/flot-charts',
   'src/ui/public/utils/lodash-mixins',
   'test/functional/fixtures/es_archiver/visualize_source-filters',
+  'packages/kbn-pm/src/utils/__fixtures__/*'
 ];
 
 

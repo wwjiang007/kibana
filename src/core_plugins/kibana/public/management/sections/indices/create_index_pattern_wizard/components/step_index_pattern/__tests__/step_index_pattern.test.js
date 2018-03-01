@@ -15,10 +15,12 @@ jest.mock('../../../lib/get_indices', () => ({
     ];
   },
 }));
-jest.mock('../../../lib/is_query_a_match', () => ({ isQueryAMatch: () => true }));
 
 const allIndices = [{ name: 'kibana' }, { name: 'es' }];
 const esService = {};
+const savedObjectsClient = {
+  find: () => ({ savedObjects: [] })
+};
 const goToNextStep = () => {};
 
 describe('StepIndexPattern', () => {
@@ -28,8 +30,8 @@ describe('StepIndexPattern', () => {
         allIndices={allIndices}
         isIncludingSystemIndices={false}
         esService={esService}
+        savedObjectsClient={savedObjectsClient}
         goToNextStep={goToNextStep}
-        initialQuery={'k'}
       />
     );
 
@@ -42,6 +44,7 @@ describe('StepIndexPattern', () => {
         allIndices={allIndices}
         isIncludingSystemIndices={false}
         esService={esService}
+        savedObjectsClient={savedObjectsClient}
         goToNextStep={goToNextStep}
       />
     );
@@ -57,6 +60,7 @@ describe('StepIndexPattern', () => {
         allIndices={allIndices}
         isIncludingSystemIndices={false}
         esService={esService}
+        savedObjectsClient={savedObjectsClient}
         goToNextStep={goToNextStep}
       />
     );
@@ -64,11 +68,10 @@ describe('StepIndexPattern', () => {
     const instance = component.instance();
 
     await instance.onQueryChanged({
-      nativeEvent: { data: 'k' },
       target: { value: 'k' }
     });
 
-    component.update();
+    await component.update();
 
     expect(component).toMatchSnapshot();
   });
@@ -79,6 +82,7 @@ describe('StepIndexPattern', () => {
         allIndices={allIndices}
         isIncludingSystemIndices={false}
         esService={esService}
+        savedObjectsClient={savedObjectsClient}
         goToNextStep={goToNextStep}
       />
     );
@@ -86,11 +90,98 @@ describe('StepIndexPattern', () => {
     const instance = component.instance();
 
     await instance.onQueryChanged({
-      nativeEvent: { data: '?' },
       target: { value: '?' }
     });
 
     component.update();
+
+    expect(component).toMatchSnapshot();
+  });
+
+  it('should properly fetch indices for the initial query', async () => {
+    const component = shallow(
+      <StepIndexPattern
+        allIndices={allIndices}
+        isIncludingSystemIndices={false}
+        esService={esService}
+        savedObjectsClient={savedObjectsClient}
+        goToNextStep={goToNextStep}
+        initialQuery="k*"
+      />
+    );
+
+    // Allow the componentWillMount code to execute
+    // https://github.com/airbnb/enzyme/issues/450
+    await component.update(); // Fire `componentWillMount()`
+    await component.update(); // Force update the component post async actions
+
+    expect(component).toMatchSnapshot();
+  });
+
+  it('should disable the next step if the index pattern exists', async () => {
+    const component = shallow(
+      <StepIndexPattern
+        allIndices={allIndices}
+        isIncludingSystemIndices={false}
+        esService={esService}
+        savedObjectsClient={{
+          find: () => ({ savedObjects: [
+            { attributes: { title: 'k*' } }
+          ] })
+        }}
+        goToNextStep={goToNextStep}
+        initialQuery="k*"
+      />
+    );
+
+    // Allow the componentWillMount code to execute
+    // https://github.com/airbnb/enzyme/issues/450
+    await component.update(); // Fire `componentWillMount()`
+    await component.update(); // Force update the component post async actions
+
+    expect(component).toMatchSnapshot();
+  });
+
+  it('should ensure we properly append a wildcard', async () => {
+    const component = shallow(
+      <StepIndexPattern
+        allIndices={allIndices}
+        isIncludingSystemIndices={false}
+        esService={esService}
+        savedObjectsClient={{
+          find: () => ({ savedObjects: [
+            { attributes: { title: 'k*' } }
+          ] })
+        }}
+        goToNextStep={goToNextStep}
+      />
+    );
+
+    const instance = component.instance();
+
+    instance.onQueryChanged({ target: { value: 'k' } });
+    await component.update();
+
+    expect(component).toMatchSnapshot();
+  });
+
+  it('should search for partial indices for queries not ending in a wildcard', async () => {
+    const component = shallow(
+      <StepIndexPattern
+        allIndices={allIndices}
+        isIncludingSystemIndices={false}
+        esService={esService}
+        savedObjectsClient={savedObjectsClient}
+        goToNextStep={goToNextStep}
+        initialQuery="k"
+      />
+    );
+
+    // Allow the componentWillMount code to execute
+    // https://github.com/airbnb/enzyme/issues/450
+    await component.update(); // Fire `componentWillMount()`
+    await component.update(); // Force update the component post async actions
+    await component.update(); // There are two actions so we apparently need to call this again
 
     expect(component).toMatchSnapshot();
   });
