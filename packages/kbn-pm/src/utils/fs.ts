@@ -1,21 +1,43 @@
-import fs from 'fs';
-import { relative, dirname } from 'path';
-import { promisify } from 'bluebird';
-import cmdShimCb from 'cmd-shim';
-import mkdirpCb from 'mkdirp';
+/*
+ * Licensed to Elasticsearch B.V. under one or more contributor
+ * license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright
+ * ownership. Elasticsearch B.V. licenses this file to you under
+ * the Apache License, Version 2.0 (the "License"); you may
+ * not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 
-const stat = promisify(fs.stat);
+import cmdShimCb from 'cmd-shim';
+import fs from 'fs';
+import mkdirpCb from 'mkdirp';
+import { ncp } from 'ncp';
+import { dirname, relative } from 'path';
+import { promisify } from 'util';
+
+const lstat = promisify(fs.lstat);
 const readFile = promisify(fs.readFile);
-const unlink = promisify(fs.unlink);
 const symlink = promisify(fs.symlink);
 const chmod = promisify(fs.chmod);
-const cmdShim = promisify(cmdShimCb);
+const cmdShim = promisify<string, string>(cmdShimCb);
+const mkdirp = promisify(mkdirpCb);
+export const unlink = promisify(fs.unlink);
+export const copyDirectory = promisify(ncp);
 
-export { chmod, readFile };
+export { chmod, readFile, mkdirp };
 
 async function statTest(path: string, block: (stats: fs.Stats) => boolean) {
   try {
-    return block(await stat(path));
+    return block(await lstat(path));
   } catch (e) {
     if (e.code === 'ENOENT') {
       return false;
@@ -25,26 +47,11 @@ async function statTest(path: string, block: (stats: fs.Stats) => boolean) {
 }
 
 /**
- * Creates the specified directory including any necessary parent directories that don't yet exist.
- * @param dir Directory to create.
- * @param mode The mode that will be set for directories that need to be created.
- * @return Path to he first directory that had to be created, if any.
+ * Test if a path points to a symlink.
+ * @param path
  */
-export function mkdirp(dir: string, mode?: string | number) {
-  // Custom wrapper around `mkdirp` to provide Promise-based interface. We don't use `promisify`
-  // function here since it can't automatically infer the right overload and we don't want to expose
-  // options format used by `mkdirp` directly.
-  return new Promise<string | null>((resolve, reject) => {
-    // If mode is provided we can pass it directly, otherwise we should specify empty `options` object.
-    const options = mode === undefined ? {} : mode;
-    mkdirpCb(dir, options, (err, args) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(args);
-      }
-    });
-  });
+export async function isSymlink(path: string) {
+  return await statTest(path, stats => stats.isSymbolicLink());
 }
 
 /**

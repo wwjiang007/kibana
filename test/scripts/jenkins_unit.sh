@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 
 set -e
-source "$(dirname $0)/../../src/dev/ci_setup/setup.sh"
+trap 'node "$KIBANA_DIR/src/dev/failed_tests/cli"' EXIT
 
-yarn kbn run test --skip-kibana --skip-kibana-extra
+export TEST_BROWSER_HEADLESS=1
 
-xvfb-run "$(yarn bin)/grunt" jenkins:unit;
+"$(FORCE_COLOR=0 yarn bin)/grunt" jenkins:unit --dev;
+
+source "$KIBANA_DIR/test/scripts/jenkins_xpack.sh"
