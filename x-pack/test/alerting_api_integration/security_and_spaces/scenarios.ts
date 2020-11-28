@@ -4,6 +4,7 @@
  * you may not use this file except in compliance with the Elastic License.
  */
 import { Space, User } from '../common/types';
+import { ES_TEST_INDEX_NAME } from '../common/lib';
 
 const NoKibanaPrivileges: User = {
   username: 'no_kibana_privileges',
@@ -12,15 +13,13 @@ const NoKibanaPrivileges: User = {
   role: {
     name: 'no_kibana_privileges',
     elasticsearch: {
-      // TODO: Remove once Elasticsearch doesn't require the permission for own keys
-      cluster: ['manage_api_key'],
       indices: [
         {
           names: ['foo'],
           privileges: ['all'],
         },
         {
-          names: ['.kibaka-alerting-test-data*'],
+          names: [`${ES_TEST_INDEX_NAME}*`],
           privileges: ['all'],
         },
       ],
@@ -28,7 +27,7 @@ const NoKibanaPrivileges: User = {
   },
 };
 
-const Superuser: User = {
+export const Superuser: User = {
   username: 'superuser',
   fullName: 'superuser',
   password: 'superuser-password',
@@ -46,18 +45,18 @@ const GlobalRead: User = {
     kibana: [
       {
         feature: {
-          alerting: ['read'],
           actions: ['read'],
+          alertsFixture: ['read'],
+          alertsRestrictedFixture: ['read'],
+          actionsSimulators: ['read'],
         },
         spaces: ['*'],
       },
     ],
     elasticsearch: {
-      // TODO: Remove once Elasticsearch doesn't require the permission for own keys
-      cluster: ['manage_api_key'],
       indices: [
         {
-          names: ['.kibaka-alerting-test-data*'],
+          names: [`${ES_TEST_INDEX_NAME}*`],
           privileges: ['all'],
         },
       ],
@@ -74,18 +73,17 @@ const Space1All: User = {
     kibana: [
       {
         feature: {
-          alerting: ['all'],
           actions: ['all'],
+          alertsFixture: ['all'],
+          actionsSimulators: ['all'],
         },
         spaces: ['space1'],
       },
     ],
     elasticsearch: {
-      // TODO: Remove once Elasticsearch doesn't require the permission for own keys
-      cluster: ['manage_api_key'],
       indices: [
         {
-          names: ['.kibaka-alerting-test-data*'],
+          names: [`${ES_TEST_INDEX_NAME}*`],
           privileges: ['all'],
         },
       ],
@@ -93,7 +91,67 @@ const Space1All: User = {
   },
 };
 
-export const Users: User[] = [NoKibanaPrivileges, Superuser, GlobalRead, Space1All];
+const Space1AllAlertingNoneActions: User = {
+  username: 'space_1_all_alerts_none_actions',
+  fullName: 'space_1_all_alerts_none_actions',
+  password: 'space_1_all_alerts_none_actions-password',
+  role: {
+    name: 'space_1_all_alerts_none_actions_role',
+    kibana: [
+      {
+        feature: {
+          alertsFixture: ['all'],
+          actionsSimulators: ['all'],
+        },
+        spaces: ['space1'],
+      },
+    ],
+    elasticsearch: {
+      indices: [
+        {
+          names: [`${ES_TEST_INDEX_NAME}*`],
+          privileges: ['all'],
+        },
+      ],
+    },
+  },
+};
+
+const Space1AllWithRestrictedFixture: User = {
+  username: 'space_1_all_with_restricted_fixture',
+  fullName: 'space_1_all_with_restricted_fixture',
+  password: 'space_1_all_with_restricted_fixture-password',
+  role: {
+    name: 'space_1_all_with_restricted_fixture_role',
+    kibana: [
+      {
+        feature: {
+          actions: ['all'],
+          alertsFixture: ['all'],
+          alertsRestrictedFixture: ['all'],
+        },
+        spaces: ['space1'],
+      },
+    ],
+    elasticsearch: {
+      indices: [
+        {
+          names: [`${ES_TEST_INDEX_NAME}*`],
+          privileges: ['all'],
+        },
+      ],
+    },
+  },
+};
+
+export const Users: User[] = [
+  NoKibanaPrivileges,
+  Superuser,
+  GlobalRead,
+  Space1All,
+  Space1AllWithRestrictedFixture,
+  Space1AllAlertingNoneActions,
+];
 
 const Space1: Space = {
   id: 'space1',
@@ -107,7 +165,13 @@ const Space2: Space = {
   disabledFeatures: [],
 };
 
-export const Spaces: Space[] = [Space1, Space2];
+const OtherSpace: Space = {
+  id: 'other',
+  name: 'Other',
+  disabledFeatures: [],
+};
+
+export const Spaces: Space[] = [Space1, Space2, OtherSpace];
 
 // For all scenarios, we define both an instance in addition
 // to a "type" definition so that we can use the exhaustive switch in
@@ -153,6 +217,23 @@ const Space1AllAtSpace1: Space1AllAtSpace1 = {
   user: Space1All,
   space: Space1,
 };
+interface Space1AllWithRestrictedFixtureAtSpace1 extends Scenario {
+  id: 'space_1_all_with_restricted_fixture at space1';
+}
+const Space1AllWithRestrictedFixtureAtSpace1: Space1AllWithRestrictedFixtureAtSpace1 = {
+  id: 'space_1_all_with_restricted_fixture at space1',
+  user: Space1AllWithRestrictedFixture,
+  space: Space1,
+};
+
+interface Space1AllAlertingNoneActionsAtSpace1 extends Scenario {
+  id: 'space_1_all_alerts_none_actions at space1';
+}
+const Space1AllAlertingNoneActionsAtSpace1: Space1AllAlertingNoneActionsAtSpace1 = {
+  id: 'space_1_all_alerts_none_actions at space1',
+  user: Space1AllAlertingNoneActions,
+  space: Space1,
+};
 
 interface Space1AllAtSpace2 extends Scenario {
   id: 'space_1_all at space2';
@@ -168,11 +249,15 @@ export const UserAtSpaceScenarios: [
   SuperuserAtSpace1,
   GlobalReadAtSpace1,
   Space1AllAtSpace1,
-  Space1AllAtSpace2
+  Space1AllAtSpace2,
+  Space1AllWithRestrictedFixtureAtSpace1,
+  Space1AllAlertingNoneActionsAtSpace1
 ] = [
   NoKibanaPrivilegesAtSpace1,
   SuperuserAtSpace1,
   GlobalReadAtSpace1,
   Space1AllAtSpace1,
   Space1AllAtSpace2,
+  Space1AllWithRestrictedFixtureAtSpace1,
+  Space1AllAlertingNoneActionsAtSpace1,
 ];

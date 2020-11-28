@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import { Lifecycle, Request, ResponseToolkit as HapiResponseToolkit } from 'hapi';
+import { Lifecycle, Request, ResponseToolkit as HapiResponseToolkit } from '@hapi/hapi';
 import { Logger } from '../../logging';
 import {
   HapiResponseAdapter,
@@ -55,7 +55,10 @@ export interface OnPostAuthToolkit {
   next: () => OnPostAuthResult;
 }
 
-/** @public */
+/**
+ * See {@link OnPostAuthToolkit}.
+ * @public
+ */
 export type OnPostAuthHandler = (
   request: KibanaRequest,
   response: LifecycleResponseFactory,

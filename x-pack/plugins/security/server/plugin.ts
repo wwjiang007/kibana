@@ -4,62 +4,87 @@
  * you may not use this file except in compliance with the Elastic License.
  */
 
-import { first } from 'rxjs/operators';
+import { combineLatest } from 'rxjs';
+import { first, map } from 'rxjs/operators';
+import { TypeOf } from '@kbn/config-schema';
+import { deepFreeze } from '@kbn/std';
+import { UsageCollectionSetup } from 'src/plugins/usage_collection/server';
+import { SecurityOssPluginSetup } from 'src/plugins/security_oss/server';
 import {
-  ClusterClient,
   CoreSetup,
-  KibanaRequest,
+  CoreStart,
   Logger,
   PluginInitializerContext,
-  RecursiveReadonly,
 } from '../../../../src/core/server';
-import { deepFreeze } from '../../../../src/core/utils';
-import { XPackInfo } from '../../../legacy/plugins/xpack_main/server/lib/xpack_info';
-import { AuthenticatedUser } from '../common/model';
-import { Authenticator, setupAuthentication } from './authentication';
-import { createConfig$ } from './config';
+import { SpacesPluginSetup, SpacesPluginStart } from '../../spaces/server';
+import { PluginSetupContract as FeaturesSetupContract } from '../../features/server';
 import {
-  CreateAPIKeyParams,
-  CreateAPIKeyResult,
-  InvalidateAPIKeyParams,
-  InvalidateAPIKeyResult,
-} from './authentication/api_keys';
+  PluginSetupContract as FeaturesPluginSetup,
+  PluginStartContract as FeaturesPluginStart,
+} from '../../features/server';
+import { LicensingPluginSetup, LicensingPluginStart } from '../../licensing/server';
+import { TaskManagerSetupContract, TaskManagerStartContract } from '../../task_manager/server';
 
-/**
- * Describes a set of APIs that is available in the legacy platform only and required by this plugin
- * to function properly.
- */
-export interface LegacyAPI {
-  xpackInfo: Pick<XPackInfo, 'isAvailable' | 'feature'>;
-  isSystemAPIRequest: (request: KibanaRequest) => boolean;
-}
+import { Authentication, setupAuthentication } from './authentication';
+import { AuthorizationService, AuthorizationServiceSetup } from './authorization';
+import { ConfigSchema, createConfig } from './config';
+import { defineRoutes } from './routes';
+import { SecurityLicenseService, SecurityLicense } from '../common/licensing';
+import { setupSavedObjects } from './saved_objects';
+import { AuditService, SecurityAuditLogger, AuditServiceSetup } from './audit';
+import { SecurityFeatureUsageService, SecurityFeatureUsageServiceStart } from './feature_usage';
+import { securityFeatures } from './features';
+import { ElasticsearchService } from './elasticsearch';
+import { SessionManagementService } from './session_management';
+import { registerSecurityUsageCollector } from './usage_collector';
+import { setupSpacesClient } from './spaces';
+
+export type SpacesService = Pick<
+  SpacesPluginSetup['spacesService'],
+  'getSpaceId' | 'namespaceToSpaceId'
+>;
+
+export type FeaturesService = Pick<
+  FeaturesSetupContract,
+  'getKibanaFeatures' | 'getElasticsearchFeatures'
+>;
 
 /**
  * Describes public Security plugin contract returned at the `setup` stage.
  */
-export interface PluginSetupContract {
-  authc: {
-    login: Authenticator['login'];
-    logout: Authenticator['logout'];
-    getCurrentUser: (request: KibanaRequest) => Promise<AuthenticatedUser | null>;
-    isAuthenticated: (request: KibanaRequest) => Promise<boolean>;
-    createAPIKey: (
-      request: KibanaRequest,
-      params: CreateAPIKeyParams
-    ) => Promise<CreateAPIKeyResult | null>;
-    invalidateAPIKey: (
-      request: KibanaRequest,
-      params: InvalidateAPIKeyParams
-    ) => Promise<InvalidateAPIKeyResult | null>;
-  };
+export interface SecurityPluginSetup {
+  authc: Pick<
+    Authentication,
+    | 'isAuthenticated'
+    | 'getCurrentUser'
+    | 'areAPIKeysEnabled'
+    | 'createAPIKey'
+    | 'invalidateAPIKey'
+    | 'grantAPIKeyAsInternalUser'
+    | 'invalidateAPIKeyAsInternalUser'
+  >;
+  authz: Pick<
+    AuthorizationServiceSetup,
+    'actions' | 'checkPrivilegesDynamicallyWithRequest' | 'checkPrivilegesWithRequest' | 'mode'
+  >;
+  license: SecurityLicense;
+  audit: AuditServiceSetup;
+}
 
-  config: RecursiveReadonly<{
-    sessionTimeout: number | null;
-    secureCookies: boolean;
-    authc: { providers: string[] };
-  }>;
+export interface PluginSetupDependencies {
+  features: FeaturesPluginSetup;
+  licensing: LicensingPluginSetup;
+  taskManager: TaskManagerSetupContract;
+  usageCollection?: UsageCollectionSetup;
+  securityOss?: SecurityOssPluginSetup;
+  spaces?: SpacesPluginSetup;
+}
 
-  registerLegacyAPI: (legacyAPI: LegacyAPI) => void;
+export interface PluginStartDependencies {
+  features: FeaturesPluginStart;
+  licensing: LicensingPluginStart;
+  taskManager: TaskManagerStartContract;
+  spaces?: SpacesPluginStart;
 }
 
 /**
@@ -67,61 +92,212 @@ export interface PluginSetupContract {
  */
 export class Plugin {
   private readonly logger: Logger;
-  private clusterClient?: ClusterClient;
+  private securityLicenseService?: SecurityLicenseService;
+  private authc?: Authentication;
 
-  private legacyAPI?: LegacyAPI;
-  private readonly getLegacyAPI = () => {
-    if (!this.legacyAPI) {
-      throw new Error('Legacy API is not registered!');
+  private readonly featureUsageService = new SecurityFeatureUsageService();
+  private featureUsageServiceStart?: SecurityFeatureUsageServiceStart;
+  private readonly getFeatureUsageService = () => {
+    if (!this.featureUsageServiceStart) {
+      throw new Error(`featureUsageServiceStart is not registered!`);
     }
-    return this.legacyAPI;
+    return this.featureUsageServiceStart;
   };
+
+  private readonly auditService = new AuditService(this.initializerContext.logger.get('audit'));
+  private readonly authorizationService = new AuthorizationService();
+  private readonly elasticsearchService = new ElasticsearchService(
+    this.initializerContext.logger.get('elasticsearch')
+  );
+  private readonly sessionManagementService = new SessionManagementService(
+    this.initializerContext.logger.get('session')
+  );
 
   constructor(private readonly initializerContext: PluginInitializerContext) {
     this.logger = this.initializerContext.logger.get();
   }
 
-  public async setup(core: CoreSetup): Promise<RecursiveReadonly<PluginSetupContract>> {
-    const config = await createConfig$(this.initializerContext, core.http.isTlsEnabled)
+  public async setup(
+    core: CoreSetup<PluginStartDependencies>,
+    {
+      features,
+      licensing,
+      taskManager,
+      usageCollection,
+      securityOss,
+      spaces,
+    }: PluginSetupDependencies
+  ) {
+    const [config, legacyConfig] = await combineLatest([
+      this.initializerContext.config.create<TypeOf<typeof ConfigSchema>>().pipe(
+        map((rawConfig) =>
+          createConfig(rawConfig, this.initializerContext.logger.get('config'), {
+            isTLSEnabled: core.http.getServerInfo().protocol === 'https',
+          })
+        )
+      ),
+      this.initializerContext.config.legacy.globalConfig$,
+    ])
       .pipe(first())
       .toPromise();
 
-    this.clusterClient = core.elasticsearch.createClient('security', {
-      plugins: [require('../../../legacy/server/lib/esjs_shield_plugin')],
+    this.securityLicenseService = new SecurityLicenseService();
+    const { license } = this.securityLicenseService.setup({
+      license$: licensing.license$,
     });
 
-    return deepFreeze({
-      registerLegacyAPI: (legacyAPI: LegacyAPI) => (this.legacyAPI = legacyAPI),
+    if (securityOss) {
+      license.features$.subscribe(({ allowRbac }) => {
+        const showInsecureClusterWarning = !allowRbac;
+        securityOss.showInsecureClusterWarning$.next(showInsecureClusterWarning);
+      });
+    }
 
-      authc: await setupAuthentication({
-        core,
-        config,
-        clusterClient: this.clusterClient,
-        loggers: this.initializerContext.logger,
-        getLegacyAPI: this.getLegacyAPI,
-      }),
+    securityFeatures.forEach((securityFeature) =>
+      features.registerElasticsearchFeature(securityFeature)
+    );
 
-      // We should stop exposing this config as soon as only new platform plugin consumes it. The only
-      // exception may be `sessionTimeout` as other parts of the app may want to know it.
-      config: {
-        sessionTimeout: config.sessionTimeout,
-        secureCookies: config.secureCookies,
-        cookieName: config.cookieName,
-        authc: { providers: config.authc.providers },
+    const { clusterClient } = this.elasticsearchService.setup({
+      elasticsearch: core.elasticsearch,
+      license,
+      status: core.status,
+    });
+
+    this.featureUsageService.setup({ featureUsage: licensing.featureUsage });
+
+    registerSecurityUsageCollector({ usageCollection, config, license });
+
+    const audit = this.auditService.setup({
+      license,
+      config: config.audit,
+      logging: core.logging,
+      http: core.http,
+      getSpaceId: (request) => spaces?.spacesService.getSpaceId(request),
+      getCurrentUser: (request) => this.authc?.getCurrentUser(request),
+    });
+    const legacyAuditLogger = new SecurityAuditLogger(audit.getLogger());
+
+    const { session } = this.sessionManagementService.setup({
+      config,
+      clusterClient,
+      http: core.http,
+      kibanaIndexName: legacyConfig.kibana.index,
+      taskManager,
+    });
+
+    this.authc = await setupAuthentication({
+      legacyAuditLogger,
+      audit,
+      getFeatureUsageService: this.getFeatureUsageService,
+      http: core.http,
+      clusterClient,
+      config,
+      license,
+      loggers: this.initializerContext.logger,
+      session,
+    });
+
+    const authz = this.authorizationService.setup({
+      http: core.http,
+      capabilities: core.capabilities,
+      clusterClient,
+      license,
+      loggers: this.initializerContext.logger,
+      kibanaIndexName: legacyConfig.kibana.index,
+      packageVersion: this.initializerContext.env.packageInfo.version,
+      buildNumber: this.initializerContext.env.packageInfo.buildNum,
+      getSpacesService: () => spaces?.spacesService,
+      features,
+      getCurrentUser: this.authc.getCurrentUser,
+    });
+
+    setupSpacesClient({
+      spaces,
+      audit,
+      authz,
+    });
+
+    setupSavedObjects({
+      legacyAuditLogger,
+      audit,
+      authz,
+      savedObjects: core.savedObjects,
+      getSpacesService: () => spaces?.spacesService,
+    });
+
+    defineRoutes({
+      router: core.http.createRouter(),
+      basePath: core.http.basePath,
+      httpResources: core.http.resources,
+      logger: this.initializerContext.logger.get('routes'),
+      clusterClient,
+      config,
+      authc: this.authc,
+      authz,
+      license,
+      session,
+      getFeatures: () =>
+        core
+          .getStartServices()
+          .then(([, { features: featuresStart }]) => featuresStart.getKibanaFeatures()),
+      getFeatureUsageService: this.getFeatureUsageService,
+    });
+
+    return deepFreeze<SecurityPluginSetup>({
+      audit: {
+        asScoped: audit.asScoped,
+        getLogger: audit.getLogger,
       },
+
+      authc: {
+        isAuthenticated: this.authc.isAuthenticated,
+        getCurrentUser: this.authc.getCurrentUser,
+        areAPIKeysEnabled: this.authc.areAPIKeysEnabled,
+        createAPIKey: this.authc.createAPIKey,
+        invalidateAPIKey: this.authc.invalidateAPIKey,
+        grantAPIKeyAsInternalUser: this.authc.grantAPIKeyAsInternalUser,
+        invalidateAPIKeyAsInternalUser: this.authc.invalidateAPIKeyAsInternalUser,
+      },
+
+      authz: {
+        actions: authz.actions,
+        checkPrivilegesWithRequest: authz.checkPrivilegesWithRequest,
+        checkPrivilegesDynamicallyWithRequest: authz.checkPrivilegesDynamicallyWithRequest,
+        mode: authz.mode,
+      },
+
+      license,
     });
   }
 
-  public start() {
+  public start(core: CoreStart, { features, licensing, taskManager }: PluginStartDependencies) {
     this.logger.debug('Starting plugin');
+
+    this.featureUsageServiceStart = this.featureUsageService.start({
+      featureUsage: licensing.featureUsage,
+    });
+
+    const { clusterClient, watchOnlineStatus$ } = this.elasticsearchService.start();
+
+    this.sessionManagementService.start({ online$: watchOnlineStatus$(), taskManager });
+    this.authorizationService.start({ features, clusterClient, online$: watchOnlineStatus$() });
   }
 
   public stop() {
     this.logger.debug('Stopping plugin');
 
-    if (this.clusterClient) {
-      this.clusterClient.close();
-      this.clusterClient = undefined;
+    if (this.securityLicenseService) {
+      this.securityLicenseService.stop();
+      this.securityLicenseService = undefined;
     }
+
+    if (this.featureUsageServiceStart) {
+      this.featureUsageServiceStart = undefined;
+    }
+
+    this.auditService.stop();
+    this.authorizationService.stop();
+    this.elasticsearchService.stop();
+    this.sessionManagementService.stop();
   }
 }

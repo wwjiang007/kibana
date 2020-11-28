@@ -20,7 +20,6 @@
 import { Setup as PluginSetup, Start as PluginStart } from '.';
 import { InspectorViewRegistry } from './view_registry';
 import { plugin as pluginInitializer } from '.';
-// eslint-disable-next-line
 import { coreMock } from '../../../core/public/mocks';
 
 export type Setup = jest.Mocked<PluginSetup>;
@@ -32,7 +31,7 @@ const createSetupContract = (): Setup => {
   const setupContract: Setup = {
     registerView: jest.fn(views.register.bind(views)),
 
-    __SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED: {
+    __LEGACY: {
       views,
     },
   };

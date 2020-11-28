@@ -19,7 +19,7 @@
 
 import { shallow } from 'enzyme';
 import React from 'react';
-import { mountWithIntl } from 'test_utils/enzyme_helpers';
+import { mountWithIntl } from '@kbn/test/jest';
 
 import { ErrorToast } from './error_toast';
 
@@ -40,6 +40,7 @@ function render(props: ErrorToastProps = {}) {
       error={props.error || new Error('error message')}
       title={props.title || 'An error occured'}
       toastMessage={props.toastMessage || 'This is the toast message'}
+      i18nContext={() => ({ children }) => <React.Fragment>{children}</React.Fragment>}
     />
   );
 }

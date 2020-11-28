@@ -16,45 +16,20 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+import { RecursiveReadonly } from '@kbn/utility-types';
+import { deepFreeze } from '@kbn/std';
 
-import { deepFreeze, RecursiveReadonly } from '../../../utils';
-import { LegacyApp, App } from '../application_service';
-import { InjectedMetadataStart } from '../../injected_metadata';
+import { Capabilities } from '../../../types/capabilities';
+import { HttpStart } from '../../http';
 
 interface StartDeps {
-  apps: readonly App[];
-  legacyApps: readonly LegacyApp[];
-  injectedMetadata: InjectedMetadataStart;
-}
-
-/**
- * The read-only set of capabilities available for the current UI session.
- * Capabilities are simple key-value pairs of (string, boolean), where the string denotes the capability ID,
- * and the boolean is a flag indicating if the capability is enabled or disabled.
- *
- * @public
- */
-export interface Capabilities {
-  /** Navigation link capabilities. */
-  navLinks: Record<string, boolean>;
-
-  /** Management section capabilities. */
-  management: {
-    [sectionId: string]: Record<string, boolean>;
-  };
-
-  /** Catalogue capabilities. Catalogue entries drive the visibility of the Kibana homepage options. */
-  catalogue: Record<string, boolean>;
-
-  /** Custom capabilities, registered by plugins. */
-  [key: string]: Record<string, boolean | Record<string, boolean>>;
+  appIds: string[];
+  http: HttpStart;
 }
 
 /** @internal */
 export interface CapabilitiesStart {
   capabilities: RecursiveReadonly<Capabilities>;
-  availableApps: readonly App[];
-  availableLegacyApps: readonly LegacyApp[];
 }
 
 /**
@@ -62,17 +37,13 @@ export interface CapabilitiesStart {
  * @internal
  */
 export class CapabilitiesService {
-  public async start({
-    apps,
-    legacyApps,
-    injectedMetadata,
-  }: StartDeps): Promise<CapabilitiesStart> {
-    const capabilities = deepFreeze(injectedMetadata.getCapabilities());
+  public async start({ appIds, http }: StartDeps): Promise<CapabilitiesStart> {
+    const capabilities = await http.post<Capabilities>('/api/core/capabilities', {
+      body: JSON.stringify({ applications: appIds }),
+    });
 
     return {
-      availableApps: apps.filter(app => capabilities.navLinks[app.id]),
-      availableLegacyApps: legacyApps.filter(app => capabilities.navLinks[app.id]),
-      capabilities,
+      capabilities: deepFreeze(capabilities),
     };
   }
 }

@@ -7,43 +7,73 @@
 import expect from '@kbn/expect';
 
 export default function ({ getPageObjects, getService }) {
-  const PageObjects = getPageObjects(['common', 'dashboard', 'maps']);
+  const PageObjects = getPageObjects(['common', 'dashboard', 'discover', 'maps']);
   const kibanaServer = getService('kibanaServer');
   const testSubjects = getService('testSubjects');
-  // const filterBar = getService('filterBar');
+  const filterBar = getService('filterBar');
 
   describe('tooltip filter actions', () => {
-
-    before(async () => {
+    async function loadDashboardAndOpenTooltip() {
       await kibanaServer.uiSettings.replace({
-        'defaultIndex': 'c698b940-e149-11e8-a35a-370a8516603a'
+        defaultIndex: 'c698b940-e149-11e8-a35a-370a8516603a',
       });
       await PageObjects.common.navigateToApp('dashboard');
+      await PageObjects.dashboard.preserveCrossAppState();
       await PageObjects.dashboard.loadSavedDashboard('dash for tooltip filter action test');
 
       await PageObjects.maps.lockTooltipAtPosition(200, -200);
+    }
+
+    describe('apply filter to current view', () => {
+      before(async () => {
+        await loadDashboardAndOpenTooltip();
+      });
+
+      it('should display create filter button when tooltip is locked', async () => {
+        const exists = await testSubjects.exists('mapTooltipCreateFilterButton');
+        expect(exists).to.be(true);
+      });
+
+      it('should create filters when create filter button is clicked', async () => {
+        await testSubjects.click('mapTooltipCreateFilterButton');
+        await testSubjects.click('applyFiltersPopoverButton');
+
+        // TODO: Fix me #64861
+        // const hasSourceFilter = await filterBar.hasFilter('name', 'charlie');
+        // expect(hasSourceFilter).to.be(true);
+
+        const hasJoinFilter = await filterBar.hasFilter('shape_name', 'charlie');
+        expect(hasJoinFilter).to.be(true);
+      });
     });
 
-    it('should display create filter button when tooltip is locked', async () => {
-      const exists = await testSubjects.exists('mapTooltipCreateFilterButton');
-      expect(exists).to.be(true);
+    describe('panel actions', () => {
+      beforeEach(async () => {
+        await loadDashboardAndOpenTooltip();
+      });
+
+      it('should trigger dashboard drilldown action when clicked', async () => {
+        await testSubjects.click('mapTooltipMoreActionsButton');
+        await testSubjects.click('mapFilterActionButton__drilldown1');
+
+        // Assert on new dashboard with filter from action
+        await PageObjects.dashboard.waitForRenderComplete();
+        const panelCount = await PageObjects.dashboard.getPanelCount();
+        expect(panelCount).to.equal(2);
+
+        const hasJoinFilter = await filterBar.hasFilter('shape_name', 'charlie');
+        expect(hasJoinFilter).to.be(true);
+      });
+
+      it('should trigger url drilldown action when clicked', async () => {
+        await testSubjects.click('mapTooltipMoreActionsButton');
+        await testSubjects.click('mapFilterActionButton__urlDrilldownToDiscover');
+
+        // Assert on discover with filter from action
+        await PageObjects.discover.waitForDiscoverAppOnScreen();
+        const hasFilter = await filterBar.hasFilter('name', 'charlie');
+        expect(hasFilter).to.be(true);
+      });
     });
-
-    /**
-     * @todo Re-enable this test when https://github.com/elastic/kibana/pull/41272#issuecomment-519868543
-     * is resolved.
-     */
-    /*
-    it('should create filters when create filter button is clicked', async () => {
-      await testSubjects.click('mapTooltipCreateFilterButton');
-
-      const hasSourceFilter = await filterBar.hasFilter('name', 'charlie');
-      expect(hasSourceFilter).to.be(true);
-
-      const hasJoinFilter = await filterBar.hasFilter('shape_name', 'charlie');
-      expect(hasJoinFilter).to.be(true);
-    });
-    */
-
   });
 }

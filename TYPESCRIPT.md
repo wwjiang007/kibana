@@ -21,7 +21,7 @@ The first thing that will probably happen when you convert a `.js` file in our s
 
 declare module '@elastic/eui' {
   // Add your types here
-  export const EuiPopoverTitle: React.SFC<EuiPopoverTitleProps>;
+  export const EuiPopoverTitle: React.FC<EuiPopoverTitleProps>;
   ...
 }
 ```
@@ -47,13 +47,13 @@ Since `@elastic/eui` already ships with a module declaration, any local addition
 // file `typings/@elastic/eui/index.d.ts`
 
 import { CommonProps } from '@elastic/eui';
-import { SFC } from 'react';
+import { FC } from 'react';
 
 declare module '@elastic/eui' {
   export type EuiNewComponentProps = CommonProps & {
     additionalProp: string;
   };
-  export const EuiNewComponent: SFC<EuiNewComponentProps>;
+  export const EuiNewComponent: FC<EuiNewComponentProps>;
 }
 ```
 
@@ -62,7 +62,7 @@ declare module '@elastic/eui' {
 1. Open up the file and see how easy it would be to convert to TypeScript.
 2. If it's very straightforward, go for it.
 3. If it's not and you wish to stay focused on your own PR, get around the error by adding a type definition file in the same folder as the dependency, with the same name.
-4. Minimally you will need to type what you are using in your PR.  No need to go crazy to fully type the thing or you might be there for awhile depending on what's available.
+4. Minimally you will need to type what you are using in your PR.  No need to go crazy to fully type the thing or you might be there for a while depending on what's available.
 
 For example:
 

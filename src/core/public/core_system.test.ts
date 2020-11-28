@@ -23,13 +23,11 @@ import {
   HttpServiceConstructor,
   I18nServiceConstructor,
   InjectedMetadataServiceConstructor,
-  LegacyPlatformServiceConstructor,
   MockChromeService,
   MockFatalErrorsService,
   MockHttpService,
   MockI18nService,
   MockInjectedMetadataService,
-  MockLegacyPlatformService,
   MockNotificationsService,
   MockOverlayService,
   MockPluginsService,
@@ -42,6 +40,10 @@ import {
   MockRenderingService,
   RenderingServiceConstructor,
   MockContextService,
+  IntegrationsServiceConstructor,
+  MockIntegrationsService,
+  CoreAppConstructor,
+  MockCoreApp,
 } from './core_system.test.mocks';
 
 import { CoreSystem } from './core_system';
@@ -57,11 +59,11 @@ const defaultCoreSystemParams = {
       warnLegacyBrowsers: true,
     },
   } as any,
-  requireLegacyFiles: jest.fn(),
 };
 
 beforeEach(() => {
   jest.clearAllMocks();
+  MockPluginsService.getOpaqueIds.mockReturnValue(new Map());
 });
 
 function createCoreSystem(params = {}) {
@@ -76,7 +78,6 @@ describe('constructor', () => {
     createCoreSystem();
 
     expect(InjectedMetadataServiceConstructor).toHaveBeenCalledTimes(1);
-    expect(LegacyPlatformServiceConstructor).toHaveBeenCalledTimes(1);
     expect(I18nServiceConstructor).toHaveBeenCalledTimes(1);
     expect(FatalErrorsServiceConstructor).toHaveBeenCalledTimes(1);
     expect(NotificationServiceConstructor).toHaveBeenCalledTimes(1);
@@ -85,6 +86,8 @@ describe('constructor', () => {
     expect(ChromeServiceConstructor).toHaveBeenCalledTimes(1);
     expect(OverlayServiceConstructor).toHaveBeenCalledTimes(1);
     expect(RenderingServiceConstructor).toHaveBeenCalledTimes(1);
+    expect(IntegrationsServiceConstructor).toHaveBeenCalledTimes(1);
+    expect(CoreAppConstructor).toHaveBeenCalledTimes(1);
   });
 
   it('passes injectedMetadata param to InjectedMetadataService', () => {
@@ -97,22 +100,6 @@ describe('constructor', () => {
     expect(InjectedMetadataServiceConstructor).toHaveBeenCalledTimes(1);
     expect(InjectedMetadataServiceConstructor).toHaveBeenCalledWith({
       injectedMetadata,
-    });
-  });
-
-  it('passes requireLegacyFiles, useLegacyTestHarness, and a dom element to LegacyPlatformService', () => {
-    const requireLegacyFiles = { requireLegacyFiles: true };
-    const useLegacyTestHarness = { useLegacyTestHarness: true };
-
-    createCoreSystem({
-      requireLegacyFiles,
-      useLegacyTestHarness,
-    });
-
-    expect(LegacyPlatformServiceConstructor).toHaveBeenCalledTimes(1);
-    expect(LegacyPlatformServiceConstructor).toHaveBeenCalledWith({
-      requireLegacyFiles,
-      useLegacyTestHarness,
     });
   });
 
@@ -167,9 +154,32 @@ describe('#setup()', () => {
     expect(MockContextService.setup).toHaveBeenCalledTimes(1);
   });
 
+  it('injects legacy dependency to context#setup()', async () => {
+    const pluginA = Symbol();
+    const pluginB = Symbol();
+    const pluginDependencies = new Map<symbol, symbol[]>([
+      [pluginA, []],
+      [pluginB, [pluginA]],
+    ]);
+    MockPluginsService.getOpaqueIds.mockReturnValue(pluginDependencies);
+    await setupCore();
+
+    expect(MockContextService.setup).toHaveBeenCalledWith({
+      pluginDependencies: new Map([
+        [pluginA, []],
+        [pluginB, [pluginA]],
+      ]),
+    });
+  });
+
   it('calls injectedMetadata#setup()', async () => {
     await setupCore();
     expect(MockInjectedMetadataService.setup).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls docLinks#setup()', async () => {
+    await setupCore();
+    expect(MockDocLinksService.setup).toHaveBeenCalledTimes(1);
   });
 
   it('calls http#setup()', async () => {
@@ -195,6 +205,16 @@ describe('#setup()', () => {
   it('calls plugin#setup()', async () => {
     await setupCore();
     expect(MockPluginsService.setup).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls integrations#setup()', async () => {
+    await setupCore();
+    expect(MockIntegrationsService.setup).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls coreApp#setup()', async () => {
+    await setupCore();
+    expect(MockCoreApp.setup).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -258,11 +278,6 @@ describe('#start()', () => {
     expect(MockPluginsService.start).toHaveBeenCalledTimes(1);
   });
 
-  it('calls legacyPlatform#start()', async () => {
-    await startCore();
-    expect(MockLegacyPlatformService.start).toHaveBeenCalledTimes(1);
-  });
-
   it('calls overlays#start()', async () => {
     await startCore();
     expect(MockOverlayService.start).toHaveBeenCalledTimes(1);
@@ -272,21 +287,25 @@ describe('#start()', () => {
     await startCore();
     expect(MockRenderingService.start).toHaveBeenCalledTimes(1);
     expect(MockRenderingService.start).toHaveBeenCalledWith({
+      application: expect.any(Object),
       chrome: expect.any(Object),
+      overlays: expect.any(Object),
       targetDomElement: expect.any(HTMLElement),
     });
+  });
+
+  it('calls integrations#start()', async () => {
+    await startCore();
+    expect(MockIntegrationsService.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls coreApp#start()', async () => {
+    await startCore();
+    expect(MockCoreApp.start).toHaveBeenCalledTimes(1);
   });
 });
 
 describe('#stop()', () => {
-  it('calls legacyPlatform.stop()', () => {
-    const coreSystem = createCoreSystem();
-
-    expect(MockLegacyPlatformService.stop).not.toHaveBeenCalled();
-    coreSystem.stop();
-    expect(MockLegacyPlatformService.stop).toHaveBeenCalled();
-  });
-
   it('calls notifications.stop()', () => {
     const coreSystem = createCoreSystem();
 
@@ -326,6 +345,22 @@ describe('#stop()', () => {
     expect(MockI18nService.stop).toHaveBeenCalled();
   });
 
+  it('calls integrations.stop()', () => {
+    const coreSystem = createCoreSystem();
+
+    expect(MockIntegrationsService.stop).not.toHaveBeenCalled();
+    coreSystem.stop();
+    expect(MockIntegrationsService.stop).toHaveBeenCalled();
+  });
+
+  it('calls coreApp.stop()', () => {
+    const coreSystem = createCoreSystem();
+
+    expect(MockCoreApp.stop).not.toHaveBeenCalled();
+    coreSystem.stop();
+    expect(MockCoreApp.stop).toHaveBeenCalled();
+  });
+
   it('clears the rootDomElement', async () => {
     const rootDomElement = document.createElement('div');
     const coreSystem = createCoreSystem({
@@ -350,31 +385,12 @@ describe('RenderingService targetDomElement', () => {
     let targetDomElementParentInStart: HTMLElement | null;
     MockRenderingService.start.mockImplementation(({ targetDomElement }) => {
       targetDomElementParentInStart = targetDomElement.parentElement;
-      return { legacyTargetDomElement: document.createElement('div') };
     });
 
     // Starting the core system should pass the targetDomElement as a child of the rootDomElement
     await core.setup();
     await core.start();
     expect(targetDomElementParentInStart!).toBe(rootDomElement);
-  });
-});
-
-describe('LegacyPlatformService targetDomElement', () => {
-  it('only mounts the element when start, after setting up the legacyPlatformService', async () => {
-    const core = createCoreSystem();
-
-    let targetDomElementInStart: HTMLElement | null;
-    MockLegacyPlatformService.start.mockImplementation(({ targetDomElement }) => {
-      targetDomElementInStart = targetDomElement;
-    });
-
-    await core.setup();
-    await core.start();
-    // Starting the core system should pass the legacyTargetDomElement to the LegacyPlatformService
-    const renderingLegacyTargetDomElement =
-      MockRenderingService.start.mock.results[0].value.legacyTargetDomElement;
-    expect(targetDomElementInStart!).toBe(renderingLegacyTargetDomElement);
   });
 });
 
@@ -385,15 +401,14 @@ describe('Notifications targetDomElement', () => {
       rootDomElement,
     });
 
-    let targetDomElementParentInStart: HTMLElement | null;
+    let targetDomElementInStart: HTMLElement | null;
     MockNotificationsService.start.mockImplementation(({ targetDomElement }): any => {
-      expect(targetDomElement.parentElement).not.toBeNull();
-      targetDomElementParentInStart = targetDomElement.parentElement;
+      targetDomElementInStart = targetDomElement;
     });
 
     // Starting the core system should pass the targetDomElement as a child of the rootDomElement
     await core.setup();
     await core.start();
-    expect(targetDomElementParentInStart!).toBe(rootDomElement);
+    expect(targetDomElementInStart!.parentElement).toBe(rootDomElement);
   });
 });

@@ -23,7 +23,7 @@ import { resolve } from 'path';
 import { normalizePath, readFileAsync } from '.';
 
 export interface I18nConfig {
-  paths: Record<string, string>;
+  paths: Record<string, string[]>;
   exclude: string[];
   translations: string[];
   prefix?: string;
@@ -49,8 +49,9 @@ export async function assignConfigFromPath(
     ...JSON.parse(await readFileAsync(resolve(configPath))),
   };
 
-  for (const [namespace, path] of Object.entries(additionalConfig.paths)) {
-    config.paths[namespace] = normalizePath(resolve(configPath, '..', path));
+  for (const [namespace, namespacePaths] of Object.entries(additionalConfig.paths)) {
+    const paths = Array.isArray(namespacePaths) ? namespacePaths : [namespacePaths];
+    config.paths[namespace] = paths.map((path) => normalizePath(resolve(configPath, '..', path)));
   }
 
   for (const exclude of additionalConfig.exclude) {
@@ -71,7 +72,7 @@ export async function assignConfigFromPath(
  * @param config I18n config instance.
  */
 export function filterConfigPaths(inputPaths: string[], config: I18nConfig) {
-  const availablePaths = Object.values(config.paths);
+  const availablePaths = Object.values(config.paths).flat();
   const pathsForExtraction = new Set();
 
   for (const inputPath of inputPaths) {
@@ -79,15 +80,17 @@ export function filterConfigPaths(inputPaths: string[], config: I18nConfig) {
 
     // If input path is the sub path of or equal to any available path, include it.
     if (
-      availablePaths.some(path => normalizedPath.startsWith(`${path}/`) || path === normalizedPath)
+      availablePaths.some(
+        (path) => normalizedPath.startsWith(`${path}/`) || path === normalizedPath
+      )
     ) {
       pathsForExtraction.add(normalizedPath);
     } else {
       // Otherwise go through all available paths and see if any of them is the sub
       // path of the input path (empty normalized path corresponds to root or above).
       availablePaths
-        .filter(path => !normalizedPath || path.startsWith(`${normalizedPath}/`))
-        .forEach(ePath => pathsForExtraction.add(ePath));
+        .filter((path) => !normalizedPath || path.startsWith(`${normalizedPath}/`))
+        .forEach((ePath) => pathsForExtraction.add(ePath));
     }
   }
 

@@ -16,9 +16,13 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { ResponseObject as HapiResponseObject, ResponseToolkit as HapiResponseToolkit } from 'hapi';
+import {
+  ResponseObject as HapiResponseObject,
+  ResponseToolkit as HapiResponseToolkit,
+} from '@hapi/hapi';
 import typeDetect from 'type-detect';
-import Boom from 'boom';
+import Boom from '@hapi/boom';
+import * as stream from 'stream';
 
 import {
   HttpResponsePayload,
@@ -112,15 +116,29 @@ export class HapiResponseAdapter {
     return response;
   }
 
-  private toError(kibanaResponse: KibanaResponse<ResponseError>) {
+  private toError(kibanaResponse: KibanaResponse<ResponseError | Buffer | stream.Readable>) {
     const { payload } = kibanaResponse;
+
+    // Special case for when we are proxying requests and want to enable streaming back error responses opaquely.
+    if (Buffer.isBuffer(payload) || payload instanceof stream.Readable) {
+      const response = this.responseToolkit
+        .response(kibanaResponse.payload)
+        .code(kibanaResponse.status);
+      setHeaders(response, kibanaResponse.options.headers);
+      return response;
+    }
+
     // we use for BWC with Boom payload for error responses - {error: string, message: string, statusCode: string}
     const error = new Boom('', {
       statusCode: kibanaResponse.status,
     });
 
     error.output.payload.message = getErrorMessage(payload);
-    error.output.payload.attributes = getErrorAttributes(payload);
+
+    const attributes = getErrorAttributes(payload);
+    if (attributes) {
+      error.output.payload.attributes = attributes;
+    }
 
     const headers = kibanaResponse.options.headers;
     if (headers) {

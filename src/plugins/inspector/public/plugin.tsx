@@ -20,16 +20,18 @@
 import { i18n } from '@kbn/i18n';
 import * as React from 'react';
 import { PluginInitializerContext, CoreSetup, CoreStart, Plugin } from '../../../core/public';
+import { toMountPoint } from '../../kibana_react/public';
 import { InspectorViewRegistry } from './view_registry';
-import { Adapters, InspectorOptions, InspectorSession } from './types';
+import { InspectorOptions, InspectorSession } from './types';
 import { InspectorPanel } from './ui/inspector_panel';
+import { Adapters } from '../common';
 
 import { getRequestsViewDescription, getDataViewDescription } from './views';
 
 export interface Setup {
   registerView: InspectorViewRegistry['register'];
 
-  __SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED: {
+  __LEGACY: {
     views: InspectorViewRegistry;
   };
 }
@@ -68,20 +70,20 @@ export class InspectorPublicPlugin implements Plugin<Setup, Start> {
   public async setup(core: CoreSetup) {
     this.views = new InspectorViewRegistry();
 
-    this.views.register(getDataViewDescription(core.uiSettings));
+    this.views.register(getDataViewDescription());
     this.views.register(getRequestsViewDescription());
 
     return {
       registerView: this.views!.register.bind(this.views),
 
-      __SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED: {
+      __LEGACY: {
         views: this.views,
       },
     };
   }
 
   public start(core: CoreStart) {
-    const isAvailable: Start['isAvailable'] = adapters =>
+    const isAvailable: Start['isAvailable'] = (adapters) =>
       this.views!.getVisible(adapters).length > 0;
 
     const closeButtonLabel = i18n.translate('inspector.closeButton', {
@@ -99,7 +101,14 @@ export class InspectorPublicPlugin implements Plugin<Setup, Start> {
       }
 
       return core.overlays.openFlyout(
-        <InspectorPanel views={views} adapters={adapters} title={options.title} />,
+        toMountPoint(
+          <InspectorPanel
+            views={views}
+            adapters={adapters}
+            title={options.title}
+            dependencies={{ uiSettings: core.uiSettings }}
+          />
+        ),
         {
           'data-test-subj': 'inspectorPanel',
           closeButtonAriaLabel: closeButtonLabel,

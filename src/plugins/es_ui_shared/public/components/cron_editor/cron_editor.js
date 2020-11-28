@@ -19,14 +19,11 @@
 
 import React, { Component, Fragment } from 'react';
 import PropTypes from 'prop-types';
-import { padLeft } from 'lodash';
+import { padStart } from 'lodash';
 import { FormattedMessage } from '@kbn/i18n/react';
+import { i18n } from '@kbn/i18n';
 
-import {
-  EuiSelect,
-  EuiText,
-  EuiFormRow,
-} from '@elastic/eui';
+import { EuiSelect, EuiFormRow } from '@elastic/eui';
 
 import {
   getOrdinalValue,
@@ -56,50 +53,57 @@ function makeSequence(min, max) {
   return values;
 }
 
-const MINUTE_OPTIONS = makeSequence(0, 59).map(value => ({
+const MINUTE_OPTIONS = makeSequence(0, 59).map((value) => ({
   value: value.toString(),
-  text: padLeft(value, 2, '0'),
+  text: padStart(value, 2, '0'),
 }));
 
-const HOUR_OPTIONS = makeSequence(0, 23).map(value => ({
+const HOUR_OPTIONS = makeSequence(0, 23).map((value) => ({
   value: value.toString(),
-  text: padLeft(value, 2, '0'),
+  text: padStart(value, 2, '0'),
 }));
 
-const DAY_OPTIONS = makeSequence(1, 7).map(value => ({
+const DAY_OPTIONS = makeSequence(1, 7).map((value) => ({
   value: value.toString(),
   text: getDayName(value - 1),
 }));
 
-const DATE_OPTIONS = makeSequence(1, 31).map(value => ({
+const DATE_OPTIONS = makeSequence(1, 31).map((value) => ({
   value: value.toString(),
   text: getOrdinalValue(value),
 }));
 
-const MONTH_OPTIONS = makeSequence(1, 12).map(value => ({
+const MONTH_OPTIONS = makeSequence(1, 12).map((value) => ({
   value: value.toString(),
   text: getMonthName(value - 1),
 }));
 
-const UNITS = [{
-  value: MINUTE,
-  text: 'minute',
-}, {
-  value: HOUR,
-  text: 'hour',
-}, {
-  value: DAY,
-  text: 'day',
-}, {
-  value: WEEK,
-  text: 'week',
-}, {
-  value: MONTH,
-  text: 'month',
-}, {
-  value: YEAR,
-  text: 'year',
-}];
+const UNITS = [
+  {
+    value: MINUTE,
+    text: 'minute',
+  },
+  {
+    value: HOUR,
+    text: 'hour',
+  },
+  {
+    value: DAY,
+    text: 'day',
+  },
+  {
+    value: WEEK,
+    text: 'week',
+  },
+  {
+    value: MONTH,
+    text: 'month',
+  },
+  {
+    value: YEAR,
+    text: 'year',
+  },
+];
 
 const frequencyToFieldsMap = {
   [MINUTE]: {},
@@ -185,7 +189,7 @@ export class CronEditor extends Component {
     frequency: PropTypes.string.isRequired,
     cronExpression: PropTypes.string.isRequired,
     onChange: PropTypes.func.isRequired,
-  }
+  };
 
   static getDerivedStateFromProps(props) {
     const { cronExpression } = props;
@@ -204,17 +208,20 @@ export class CronEditor extends Component {
     };
   }
 
-  onChangeFrequency = frequency => {
+  onChangeFrequency = (frequency) => {
     const { onChange, fieldToPreferredValueMap } = this.props;
 
     // Update fields which aren't editable with acceptable baseline values.
     const editableFields = Object.keys(frequencyToFieldsMap[frequency]);
-    const inheritedFields = editableFields.reduce((baselineFields, field) => {
-      if (fieldToPreferredValueMap[field] != null) {
-        baselineFields[field] = fieldToPreferredValueMap[field];
-      }
-      return baselineFields;
-    }, { ...frequencyToBaselineFieldsMap[frequency] });
+    const inheritedFields = editableFields.reduce(
+      (baselineFields, field) => {
+        if (fieldToPreferredValueMap[field] != null) {
+          baselineFields[field] = fieldToPreferredValueMap[field];
+        }
+        return baselineFields;
+      },
+      { ...frequencyToBaselineFieldsMap[frequency] }
+    );
 
     const newCronExpression = cronPartsToExpression(inheritedFields);
 
@@ -225,23 +232,26 @@ export class CronEditor extends Component {
     });
   };
 
-  onChangeFields = fields => {
+  onChangeFields = (fields) => {
     const { onChange, frequency, fieldToPreferredValueMap } = this.props;
 
     const editableFields = Object.keys(frequencyToFieldsMap[frequency]);
     const newFieldToPreferredValueMap = {};
 
-    const editedFields = editableFields.reduce((accumFields, field) => {
-      if (fields[field] !== undefined) {
-        accumFields[field] = fields[field];
-        // Once the user touches a field, we want to persist its value as the user changes
-        // the cron frequency.
-        newFieldToPreferredValueMap[field] = fields[field];
-      } else {
-        accumFields[field] = this.state[field];
-      }
-      return accumFields;
-    }, { ...frequencyToBaselineFieldsMap[frequency] });
+    const editedFields = editableFields.reduce(
+      (accumFields, field) => {
+        if (fields[field] !== undefined) {
+          accumFields[field] = fields[field];
+          // Once the user touches a field, we want to persist its value as the user changes
+          // the cron frequency.
+          newFieldToPreferredValueMap[field] = fields[field];
+        } else {
+          accumFields[field] = this.state[field];
+        }
+        return accumFields;
+      },
+      { ...frequencyToBaselineFieldsMap[frequency] }
+    );
 
     const newCronExpression = cronPartsToExpression(editedFields);
 
@@ -251,20 +261,14 @@ export class CronEditor extends Component {
       fieldToPreferredValueMap: {
         ...fieldToPreferredValueMap,
         ...newFieldToPreferredValueMap,
-      }
+      },
     });
   };
 
   renderForm() {
     const { frequency } = this.props;
 
-    const {
-      minute,
-      hour,
-      day,
-      date,
-      month,
-    } = this.state;
+    const { minute, hour, day, date, month } = this.state;
 
     switch (frequency) {
       case MINUTE:
@@ -342,29 +346,19 @@ export class CronEditor extends Component {
     return (
       <Fragment>
         <EuiFormRow
-          label={(
-            <FormattedMessage
-              id="esUi.cronEditor.fieldFrequencyLabel"
-              defaultMessage="Frequency"
-            />
-          )}
+          label={
+            <FormattedMessage id="esUi.cronEditor.fieldFrequencyLabel" defaultMessage="Frequency" />
+          }
           fullWidth
         >
           <EuiSelect
             options={UNITS}
             value={frequency}
-            onChange={e => this.onChangeFrequency(e.target.value)}
+            onChange={(e) => this.onChangeFrequency(e.target.value)}
             fullWidth
-            prepend={(
-              <EuiText size="xs">
-                <strong>
-                  <FormattedMessage
-                    id="esUi.cronEditor.textEveryLabel"
-                    defaultMessage="Every"
-                  />
-                </strong>
-              </EuiText>
-            )}
+            prepend={i18n.translate('esUi.cronEditor.textEveryLabel', {
+              defaultMessage: 'Every',
+            })}
             data-test-subj="cronFrequencySelect"
           />
         </EuiFormRow>

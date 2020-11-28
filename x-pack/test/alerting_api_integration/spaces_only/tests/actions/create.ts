@@ -6,7 +6,7 @@
 
 import expect from '@kbn/expect';
 import { Spaces } from '../../scenarios';
-import { getUrlPrefix, ObjectRemover } from '../../../common/lib';
+import { checkAAD, getUrlPrefix, ObjectRemover } from '../../../common/lib';
 import { FtrProviderContext } from '../../../common/ftr_provider_context';
 
 // eslint-disable-next-line import/no-default-export
@@ -20,10 +20,10 @@ export default function createActionTests({ getService }: FtrProviderContext) {
 
     it('should handle create action request appropriately', async () => {
       const response = await supertest
-        .post(`${getUrlPrefix(Spaces.space1.id)}/api/action`)
+        .post(`${getUrlPrefix(Spaces.space1.id)}/api/actions/action`)
         .set('kbn-xsrf', 'foo')
         .send({
-          description: 'My action',
+          name: 'My action',
           actionTypeId: 'test.index-record',
           config: {
             unencrypted: `This value shouldn't get encrypted`,
@@ -33,17 +33,52 @@ export default function createActionTests({ getService }: FtrProviderContext) {
           },
         });
 
-      expect(response.statusCode).to.eql(200);
+      expect(response.status).to.eql(200);
+      objectRemover.add(Spaces.space1.id, response.body.id, 'action', 'actions');
       expect(response.body).to.eql({
         id: response.body.id,
-        description: 'My action',
+        isPreconfigured: false,
+        name: 'My action',
         actionTypeId: 'test.index-record',
         config: {
           unencrypted: `This value shouldn't get encrypted`,
         },
       });
       expect(typeof response.body.id).to.be('string');
-      objectRemover.add(Spaces.space1.id, response.body.id, 'action');
+
+      // Ensure AAD isn't broken
+      await checkAAD({
+        supertest,
+        spaceId: Spaces.space1.id,
+        type: 'action',
+        id: response.body.id,
+      });
+    });
+
+    it('should notify feature usage when creating a gold action type', async () => {
+      const testStart = new Date();
+      const response = await supertest
+        .post(`${getUrlPrefix(Spaces.space1.id)}/api/actions/action`)
+        .set('kbn-xsrf', 'foo')
+        .send({
+          name: 'Noop action type',
+          actionTypeId: 'test.noop',
+          secrets: {},
+          config: {},
+        })
+        .expect(200);
+      objectRemover.add(Spaces.space1.id, response.body.id, 'action', 'actions');
+
+      const {
+        body: { features },
+      } = await supertest.get(`${getUrlPrefix(Spaces.space1.id)}/api/licensing/feature_usage`);
+      expect(features).to.be.an(Array);
+      const noopFeature = features.find(
+        (feature: { name: string }) => feature.name === 'Connector: Test: Noop'
+      );
+      expect(noopFeature).to.be.ok();
+      expect(noopFeature.last_used).to.be.a('string');
+      expect(new Date(noopFeature.last_used).getTime()).to.be.greaterThan(testStart.getTime());
     });
   });
 }

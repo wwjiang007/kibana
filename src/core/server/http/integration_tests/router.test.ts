@@ -17,53 +17,523 @@
  * under the License.
  */
 import { Stream } from 'stream';
-import Boom from 'boom';
-
+import Boom from '@hapi/boom';
 import supertest from 'supertest';
-import { BehaviorSubject } from 'rxjs';
-import { ByteSizeValue, schema } from '@kbn/config-schema';
+import { schema } from '@kbn/config-schema';
 
 import { HttpService } from '../http_service';
 
-import { CoreContext } from '../../core_context';
-import { Env } from '../../config';
-import { getEnvOptions } from '../../config/__mocks__/env';
-import { configServiceMock } from '../../config/config_service.mock';
 import { contextServiceMock } from '../../context/context_service.mock';
-import { loggingServiceMock } from '../../logging/logging_service.mock';
+import { loggingSystemMock } from '../../logging/logging_system.mock';
+import { createHttpServer } from '../test_utils';
 
 let server: HttpService;
 
-let logger: ReturnType<typeof loggingServiceMock.create>;
-let env: Env;
-let coreContext: CoreContext;
-const configService = configServiceMock.create();
+let logger: ReturnType<typeof loggingSystemMock.create>;
 const contextSetup = contextServiceMock.createSetupContract();
 
 const setupDeps = {
   context: contextSetup,
 };
-configService.atPath.mockReturnValue(
-  new BehaviorSubject({
-    hosts: ['localhost'],
-    maxPayload: new ByteSizeValue(1024),
-    autoListen: true,
-    ssl: {
-      enabled: false,
-    },
-  } as any)
-);
 
 beforeEach(() => {
-  logger = loggingServiceMock.create();
-  env = Env.createDefault(getEnvOptions());
+  logger = loggingSystemMock.create();
 
-  coreContext = { coreId: Symbol('core'), env, logger, configService: configService as any };
-  server = new HttpService(coreContext);
+  server = createHttpServer({ logger });
 });
 
 afterEach(async () => {
   await server.stop();
+});
+
+describe('Options', () => {
+  describe('authRequired', () => {
+    describe('optional', () => {
+      it('User has access to a route if auth mechanism not registered', async () => {
+        const { server: innerServer, createRouter, auth } = await server.setup(setupDeps);
+        const router = createRouter('/');
+
+        router.get(
+          { path: '/', validate: false, options: { authRequired: 'optional' } },
+          (context, req, res) =>
+            res.ok({
+              body: {
+                httpAuthIsAuthenticated: auth.isAuthenticated(req),
+                requestIsAuthenticated: req.auth.isAuthenticated,
+              },
+            })
+        );
+        await server.start();
+
+        await supertest(innerServer.listener).get('/').expect(200, {
+          httpAuthIsAuthenticated: false,
+          requestIsAuthenticated: false,
+        });
+      });
+
+      it('Authenticated user has access to a route', async () => {
+        const { server: innerServer, createRouter, registerAuth, auth } = await server.setup(
+          setupDeps
+        );
+        const router = createRouter('/');
+
+        registerAuth((req, res, toolkit) => {
+          return toolkit.authenticated();
+        });
+        router.get(
+          { path: '/', validate: false, options: { authRequired: 'optional' } },
+          (context, req, res) =>
+            res.ok({
+              body: {
+                httpAuthIsAuthenticated: auth.isAuthenticated(req),
+                requestIsAuthenticated: req.auth.isAuthenticated,
+              },
+            })
+        );
+        await server.start();
+
+        await supertest(innerServer.listener).get('/').expect(200, {
+          httpAuthIsAuthenticated: true,
+          requestIsAuthenticated: true,
+        });
+      });
+
+      it('User with no credentials can access a route', async () => {
+        const { server: innerServer, createRouter, registerAuth, auth } = await server.setup(
+          setupDeps
+        );
+        const router = createRouter('/');
+
+        registerAuth((req, res, toolkit) => toolkit.notHandled());
+
+        router.get(
+          { path: '/', validate: false, options: { authRequired: 'optional' } },
+          (context, req, res) =>
+            res.ok({
+              body: {
+                httpAuthIsAuthenticated: auth.isAuthenticated(req),
+                requestIsAuthenticated: req.auth.isAuthenticated,
+              },
+            })
+        );
+        await server.start();
+
+        await supertest(innerServer.listener).get('/').expect(200, {
+          httpAuthIsAuthenticated: false,
+          requestIsAuthenticated: false,
+        });
+      });
+
+      it('User with invalid credentials cannot access a route', async () => {
+        const { server: innerServer, createRouter, registerAuth } = await server.setup(setupDeps);
+        const router = createRouter('/');
+
+        registerAuth((req, res, toolkit) => res.unauthorized());
+
+        router.get(
+          { path: '/', validate: false, options: { authRequired: 'optional' } },
+          (context, req, res) => res.ok({ body: 'ok' })
+        );
+        await server.start();
+
+        await supertest(innerServer.listener).get('/').expect(401);
+      });
+
+      it('does not redirect user and allows access to a resource', async () => {
+        const { server: innerServer, createRouter, registerAuth, auth } = await server.setup(
+          setupDeps
+        );
+        const router = createRouter('/');
+
+        registerAuth((req, res, toolkit) =>
+          toolkit.redirected({
+            location: '/redirect-to',
+          })
+        );
+
+        router.get(
+          { path: '/', validate: false, options: { authRequired: 'optional' } },
+          (context, req, res) =>
+            res.ok({
+              body: {
+                httpAuthIsAuthenticated: auth.isAuthenticated(req),
+                requestIsAuthenticated: req.auth.isAuthenticated,
+              },
+            })
+        );
+        await server.start();
+
+        await supertest(innerServer.listener).get('/').expect(200, {
+          httpAuthIsAuthenticated: false,
+          requestIsAuthenticated: false,
+        });
+      });
+    });
+
+    describe('true', () => {
+      it('User has access to a route if auth  interceptor is not registered', async () => {
+        const { server: innerServer, createRouter, auth } = await server.setup(setupDeps);
+        const router = createRouter('/');
+
+        router.get(
+          { path: '/', validate: false, options: { authRequired: true } },
+          (context, req, res) =>
+            res.ok({
+              body: {
+                httpAuthIsAuthenticated: auth.isAuthenticated(req),
+                requestIsAuthenticated: req.auth.isAuthenticated,
+              },
+            })
+        );
+        await server.start();
+
+        await supertest(innerServer.listener).get('/').expect(200, {
+          httpAuthIsAuthenticated: false,
+          requestIsAuthenticated: false,
+        });
+      });
+
+      it('Authenticated user has access to a route', async () => {
+        const { server: innerServer, createRouter, registerAuth, auth } = await server.setup(
+          setupDeps
+        );
+        const router = createRouter('/');
+
+        registerAuth((req, res, toolkit) => {
+          return toolkit.authenticated();
+        });
+        router.get(
+          { path: '/', validate: false, options: { authRequired: true } },
+          (context, req, res) =>
+            res.ok({
+              body: {
+                httpAuthIsAuthenticated: auth.isAuthenticated(req),
+                requestIsAuthenticated: req.auth.isAuthenticated,
+              },
+            })
+        );
+        await server.start();
+
+        await supertest(innerServer.listener).get('/').expect(200, {
+          httpAuthIsAuthenticated: true,
+          requestIsAuthenticated: true,
+        });
+      });
+
+      it('User with no credentials cannot access a route', async () => {
+        const { server: innerServer, createRouter, registerAuth } = await server.setup(setupDeps);
+        const router = createRouter('/');
+
+        registerAuth((req, res, toolkit) => toolkit.notHandled());
+        router.get(
+          { path: '/', validate: false, options: { authRequired: true } },
+          (context, req, res) => res.ok({ body: 'ok' })
+        );
+        await server.start();
+
+        await supertest(innerServer.listener).get('/').expect(401);
+      });
+
+      it('User with invalid credentials cannot access a route', async () => {
+        const { server: innerServer, createRouter, registerAuth } = await server.setup(setupDeps);
+        const router = createRouter('/');
+
+        registerAuth((req, res, toolkit) => res.unauthorized());
+
+        router.get(
+          { path: '/', validate: false, options: { authRequired: true } },
+          (context, req, res) => res.ok({ body: 'ok' })
+        );
+        await server.start();
+
+        await supertest(innerServer.listener).get('/').expect(401);
+      });
+
+      it('allows redirecting an user', async () => {
+        const { server: innerServer, createRouter, registerAuth } = await server.setup(setupDeps);
+        const router = createRouter('/');
+        const redirectUrl = '/redirect-to';
+
+        registerAuth((req, res, toolkit) =>
+          toolkit.redirected({
+            location: redirectUrl,
+          })
+        );
+
+        router.get(
+          { path: '/', validate: false, options: { authRequired: true } },
+          (context, req, res) => res.ok({ body: 'ok' })
+        );
+        await server.start();
+
+        const result = await supertest(innerServer.listener).get('/').expect(302);
+
+        expect(result.header.location).toBe(redirectUrl);
+      });
+    });
+
+    describe('false', () => {
+      it('does not try to authenticate a user', async () => {
+        const { server: innerServer, createRouter, registerAuth, auth } = await server.setup(
+          setupDeps
+        );
+        const router = createRouter('/');
+
+        const authHook = jest.fn();
+        registerAuth(authHook);
+        router.get(
+          { path: '/', validate: false, options: { authRequired: false } },
+          (context, req, res) =>
+            res.ok({
+              body: {
+                httpAuthIsAuthenticated: auth.isAuthenticated(req),
+                requestIsAuthenticated: req.auth.isAuthenticated,
+              },
+            })
+        );
+        await server.start();
+
+        await supertest(innerServer.listener).get('/').expect(200, {
+          httpAuthIsAuthenticated: false,
+          requestIsAuthenticated: false,
+        });
+
+        expect(authHook).toHaveBeenCalledTimes(0);
+      });
+    });
+  });
+
+  describe('timeout', () => {
+    const writeBodyCharAtATime = (request: supertest.Test, body: string, interval: number) => {
+      return new Promise((resolve, reject) => {
+        let i = 0;
+        const intervalId = setInterval(() => {
+          if (i < body.length) {
+            request.write(body[i++]);
+          } else {
+            clearInterval(intervalId);
+            request.end((err, res) => {
+              resolve(res);
+            });
+          }
+        }, interval);
+        request.on('error', (err) => {
+          clearInterval(intervalId);
+          reject(err);
+        });
+      });
+    };
+
+    describe('payload', () => {
+      it('should timeout if POST payload sending is too slow', async () => {
+        const { server: innerServer, createRouter } = await server.setup(setupDeps);
+        const router = createRouter('/');
+
+        router.post(
+          {
+            options: {
+              body: {
+                accepts: ['application/json'],
+              },
+              timeout: { payload: 100 },
+            },
+            path: '/a',
+            validate: false,
+          },
+          async (context, req, res) => {
+            return res.ok({});
+          }
+        );
+        await server.start();
+
+        // start the request
+        const request = supertest(innerServer.listener)
+          .post('/a')
+          .set('Content-Type', 'application/json')
+          .set('Transfer-Encoding', 'chunked');
+
+        const result = writeBodyCharAtATime(request, '{"foo":"bar"}', 10);
+
+        await expect(result).rejects.toMatchInlineSnapshot(`[Error: Request Timeout]`);
+      });
+
+      it('should not timeout if POST payload sending is quick', async () => {
+        const { server: innerServer, createRouter } = await server.setup(setupDeps);
+        const router = createRouter('/');
+
+        router.post(
+          {
+            path: '/a',
+            validate: false,
+            options: { body: { accepts: 'application/json' }, timeout: { payload: 10000 } },
+          },
+          async (context, req, res) => res.ok({})
+        );
+        await server.start();
+
+        // start the request
+        const request = supertest(innerServer.listener)
+          .post('/a')
+          .set('Content-Type', 'application/json')
+          .set('Transfer-Encoding', 'chunked');
+
+        const result = writeBodyCharAtATime(request, '{}', 10);
+
+        await expect(result).resolves.toHaveProperty('status', 200);
+      });
+    });
+
+    describe('idleSocket', () => {
+      it.skip('should timeout if payload sending has too long of an idle period', async () => {
+        const { server: innerServer, createRouter } = await server.setup(setupDeps);
+        const router = createRouter('/');
+
+        router.post(
+          {
+            path: '/a',
+            validate: false,
+            options: {
+              body: {
+                accepts: ['application/json'],
+              },
+              timeout: { idleSocket: 10 },
+            },
+          },
+          async (context, req, res) => {
+            return res.ok({});
+          }
+        );
+
+        await server.start();
+
+        // start the request
+        const request = supertest(innerServer.listener)
+          .post('/a')
+          .set('Content-Type', 'application/json')
+          .set('Transfer-Encoding', 'chunked');
+
+        const result = writeBodyCharAtATime(request, '{}', 20);
+
+        await expect(result).rejects.toThrow('socket hang up');
+      });
+
+      it(`should not timeout if payload sending doesn't have too long of an idle period`, async () => {
+        const { server: innerServer, createRouter } = await server.setup(setupDeps);
+        const router = createRouter('/');
+
+        router.post(
+          {
+            path: '/a',
+            validate: false,
+            options: {
+              body: {
+                accepts: ['application/json'],
+              },
+              timeout: { idleSocket: 1000 },
+            },
+          },
+          async (context, req, res) => {
+            return res.ok({});
+          }
+        );
+
+        await server.start();
+
+        // start the request
+        const request = supertest(innerServer.listener)
+          .post('/a')
+          .set('Content-Type', 'application/json')
+          .set('Transfer-Encoding', 'chunked');
+
+        const result = writeBodyCharAtATime(request, '{}', 10);
+
+        await expect(result).resolves.toHaveProperty('status', 200);
+      });
+
+      it('should timeout if servers response is too slow', async () => {
+        const { server: innerServer, createRouter } = await server.setup(setupDeps);
+        const router = createRouter('/');
+
+        router.post(
+          {
+            path: '/a',
+            validate: false,
+            options: {
+              body: {
+                accepts: ['application/json'],
+              },
+              timeout: { idleSocket: 1000, payload: 100 },
+            },
+          },
+          async (context, req, res) => {
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            return res.ok({});
+          }
+        );
+
+        await server.start();
+        await expect(supertest(innerServer.listener).post('/a')).rejects.toThrow('socket hang up');
+      });
+
+      it('should not timeout if servers response is quick', async () => {
+        const { server: innerServer, createRouter } = await server.setup(setupDeps);
+        const router = createRouter('/');
+
+        router.post(
+          {
+            path: '/a',
+            validate: false,
+            options: {
+              body: {
+                accepts: ['application/json'],
+              },
+              timeout: { idleSocket: 2000, payload: 100 },
+            },
+          },
+          async (context, req, res) => {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            return res.ok({});
+          }
+        );
+
+        await server.start();
+        await expect(supertest(innerServer.listener).post('/a')).resolves.toHaveProperty(
+          'status',
+          200
+        );
+      });
+    });
+  });
+});
+
+describe('Cache-Control', () => {
+  it('does not allow responses to be cached by default', async () => {
+    const { server: innerServer, createRouter } = await server.setup(setupDeps);
+    const router = createRouter('/');
+
+    router.get({ path: '/', validate: false, options: {} }, (context, req, res) => res.ok());
+    await server.start();
+
+    await supertest(innerServer.listener)
+      .get('/')
+      .expect('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+  });
+
+  it('allows individual responses override the default cache-control header', async () => {
+    const { server: innerServer, createRouter } = await server.setup(setupDeps);
+    const router = createRouter('/');
+
+    router.get({ path: '/', validate: false, options: {} }, (context, req, res) =>
+      res.ok({
+        headers: {
+          'Cache-Control': 'public, max-age=1200',
+        },
+      })
+    );
+    await server.start();
+
+    await supertest(innerServer.listener).get('/').expect('Cache-Control', 'public, max-age=1200');
+  });
 });
 
 describe('Handler', () => {
@@ -76,12 +546,10 @@ describe('Handler', () => {
     });
     await server.start();
 
-    const result = await supertest(innerServer.listener)
-      .get('/')
-      .expect(500);
+    const result = await supertest(innerServer.listener).get('/').expect(500);
 
     expect(result.body.message).toBe('An internal server error occurred.');
-    expect(loggingServiceMock.collect(logger).error).toMatchInlineSnapshot(`
+    expect(loggingSystemMock.collect(logger).error).toMatchInlineSnapshot(`
         Array [
           Array [
             [Error: unexpected error],
@@ -99,12 +567,10 @@ describe('Handler', () => {
     });
     await server.start();
 
-    const result = await supertest(innerServer.listener)
-      .get('/')
-      .expect(500);
+    const result = await supertest(innerServer.listener).get('/').expect(500);
 
     expect(result.body.message).toBe('An internal server error occurred.');
-    expect(loggingServiceMock.collect(logger).error).toMatchInlineSnapshot(`
+    expect(loggingSystemMock.collect(logger).error).toMatchInlineSnapshot(`
       Array [
         Array [
           [Error: Unauthorized],
@@ -120,12 +586,10 @@ describe('Handler', () => {
     router.get({ path: '/', validate: false }, (context, req, res) => 'ok' as any);
     await server.start();
 
-    const result = await supertest(innerServer.listener)
-      .get('/')
-      .expect(500);
+    const result = await supertest(innerServer.listener).get('/').expect(500);
 
     expect(result.body.message).toBe('An internal server error occurred.');
-    expect(loggingServiceMock.collect(logger).error).toMatchInlineSnapshot(`
+    expect(loggingSystemMock.collect(logger).error).toMatchInlineSnapshot(`
       Array [
         Array [
           [Error: Unexpected result from Route Handler. Expected KibanaResponse, but given: string.],
@@ -162,6 +626,100 @@ describe('Handler', () => {
       statusCode: 400,
     });
   });
+
+  it('accept to receive an array payload', async () => {
+    const { server: innerServer, createRouter } = await server.setup(setupDeps);
+    const router = createRouter('/');
+
+    let body: any = null;
+    router.post(
+      {
+        path: '/',
+        validate: {
+          body: schema.arrayOf(schema.object({ foo: schema.string() })),
+        },
+      },
+      (context, req, res) => {
+        body = req.body;
+        return res.ok({ body: 'ok' });
+      }
+    );
+    await server.start();
+
+    await supertest(innerServer.listener)
+      .post('/')
+      .send([{ foo: 'bar' }, { foo: 'dolly' }])
+      .expect(200);
+
+    expect(body).toEqual([{ foo: 'bar' }, { foo: 'dolly' }]);
+  });
+
+  it('accept to receive a json primitive payload', async () => {
+    const { server: innerServer, createRouter } = await server.setup(setupDeps);
+    const router = createRouter('/');
+
+    let body: any = null;
+    router.post(
+      {
+        path: '/',
+        validate: {
+          body: schema.number(),
+        },
+      },
+      (context, req, res) => {
+        body = req.body;
+        return res.ok({ body: 'ok' });
+      }
+    );
+    await server.start();
+
+    await supertest(innerServer.listener).post('/').type('json').send('12').expect(200);
+
+    expect(body).toEqual(12);
+  });
+});
+
+describe('handleLegacyErrors', () => {
+  it('properly convert Boom errors', async () => {
+    const { server: innerServer, createRouter } = await server.setup(setupDeps);
+    const router = createRouter('/');
+
+    router.get(
+      { path: '/', validate: false },
+      router.handleLegacyErrors((context, req, res) => {
+        throw Boom.notFound();
+      })
+    );
+    await server.start();
+
+    const result = await supertest(innerServer.listener).get('/').expect(404);
+
+    expect(result.body.message).toBe('Not Found');
+  });
+
+  it('returns default error when non-Boom errors are thrown', async () => {
+    const { server: innerServer, createRouter } = await server.setup(setupDeps);
+    const router = createRouter('/');
+
+    router.get(
+      {
+        path: '/',
+        validate: false,
+      },
+      router.handleLegacyErrors((context, req, res) => {
+        throw new Error('Unexpected');
+      })
+    );
+    await server.start();
+
+    const result = await supertest(innerServer.listener).get('/').expect(500);
+
+    expect(result.body).toEqual({
+      error: 'Internal Server Error',
+      message: 'An internal server error occurred.',
+      statusCode: 500,
+    });
+  });
 });
 
 describe('Response factory', () => {
@@ -176,9 +734,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(200);
+      const result = await supertest(innerServer.listener).get('/').expect(200);
 
       expect(result.body).toEqual({ key: 'value' });
       expect(result.header['content-type']).toBe('application/json; charset=utf-8');
@@ -194,9 +750,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(200);
+      const result = await supertest(innerServer.listener).get('/').expect(200);
 
       expect(result.text).toBe('result');
       expect(result.header['content-type']).toBe('text/html; charset=utf-8');
@@ -212,12 +766,10 @@ describe('Response factory', () => {
 
       await server.start();
 
-      await supertest(innerServer.listener)
-        .get('/')
-        .expect(200);
+      await supertest(innerServer.listener).get('/').expect(200);
     });
 
-    it('supports answering with Stream', async () => {
+    it('supports answering with Stream (without custom Content-Type)', async () => {
       const { server: innerServer, createRouter } = await server.setup(setupDeps);
       const router = createRouter('/');
 
@@ -236,12 +788,41 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(200);
+      const result = await supertest(innerServer.listener).get('/').expect(200);
+
+      expect(result.text).toBe(undefined);
+      expect(result.body.toString()).toBe('abc');
+      expect(result.header['content-type']).toBe('application/octet-stream');
+    });
+
+    it('supports answering with Stream (with custom Content-Type)', async () => {
+      const { server: innerServer, createRouter } = await server.setup(setupDeps);
+      const router = createRouter('/');
+
+      router.get({ path: '/', validate: false }, (context, req, res) => {
+        const stream = new Stream.Readable({
+          read() {
+            this.push('a');
+            this.push('b');
+            this.push('c');
+            this.push(null);
+          },
+        });
+
+        return res.ok({
+          body: stream,
+          headers: {
+            'Content-Type': 'text/plain',
+          },
+        });
+      });
+
+      await server.start();
+
+      const result = await supertest(innerServer.listener).get('/').expect(200);
 
       expect(result.text).toBe('abc');
-      expect(result.header['content-type']).toBe(undefined);
+      expect(result.header['content-type']).toBe('text/plain; charset=utf-8');
     });
 
     it('supports answering with chunked Stream', async () => {
@@ -252,19 +833,22 @@ describe('Response factory', () => {
         const stream = new Stream.PassThrough();
         stream.write('a');
         stream.write('b');
-        setTimeout(function() {
+        setTimeout(function () {
           stream.write('c');
           stream.end();
         }, 100);
 
-        return res.ok({ body: stream });
+        return res.ok({
+          body: stream,
+          headers: {
+            'Content-Type': 'text/plain',
+          },
+        });
       });
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(200);
+      const result = await supertest(innerServer.listener).get('/').expect(200);
 
       expect(result.text).toBe('abc');
       expect(result.header['transfer-encoding']).toBe('chunked');
@@ -287,10 +871,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(200)
-        .buffer(true);
+      const result = await supertest(innerServer.listener).get('/').expect(200).buffer(true);
 
       expect(result.header['content-encoding']).toBe('binary');
       expect(result.header['content-length']).toBe('1028');
@@ -302,7 +883,7 @@ describe('Response factory', () => {
       const router = createRouter('/');
 
       router.get({ path: '/', validate: false }, (context, req, res) => {
-        const buffer = new Buffer('abc');
+        const buffer = Buffer.from('abc');
 
         return res.ok({
           body: buffer,
@@ -314,10 +895,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(200)
-        .buffer(true);
+      const result = await supertest(innerServer.listener).get('/').expect(200).buffer(true);
 
       expect(result.text).toBe('abc');
       expect(result.header['content-length']).toBe('3');
@@ -339,9 +917,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(200);
+      const result = await supertest(innerServer.listener).get('/').expect(200);
 
       expect(result.text).toEqual('value');
       expect(result.header.etag).toBe('1234');
@@ -363,9 +939,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(200);
+      const result = await supertest(innerServer.listener).get('/').expect(200);
 
       expect(result.text).toEqual('value');
       expect(result.header.etag).toBe('1234');
@@ -387,9 +961,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(200);
+      const result = await supertest(innerServer.listener).get('/').expect(200);
 
       expect(result.header.etag).toBe('1234');
     });
@@ -409,9 +981,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(200);
+      const result = await supertest(innerServer.listener).get('/').expect(200);
 
       expect(result.header['set-cookie']).toEqual(['foo', 'bar']);
     });
@@ -428,12 +998,10 @@ describe('Response factory', () => {
 
       await server.start();
 
-      await supertest(innerServer.listener)
-        .get('/')
-        .expect(500);
+      await supertest(innerServer.listener).get('/').expect(500);
 
       // error happens within hapi when route handler already finished execution.
-      expect(loggingServiceMock.collect(logger).error).toHaveLength(0);
+      expect(loggingSystemMock.collect(logger).error).toHaveLength(0);
     });
 
     it('200 OK with body', async () => {
@@ -446,9 +1014,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(200);
+      const result = await supertest(innerServer.listener).get('/').expect(200);
 
       expect(result.body).toEqual({ key: 'value' });
       expect(result.header['content-type']).toBe('application/json; charset=utf-8');
@@ -464,9 +1030,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(202);
+      const result = await supertest(innerServer.listener).get('/').expect(202);
 
       expect(result.body).toEqual({ location: 'somewhere' });
       expect(result.header['content-type']).toBe('application/json; charset=utf-8');
@@ -482,9 +1046,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(204);
+      const result = await supertest(innerServer.listener).get('/').expect(204);
 
       expect(result.noContent).toBe(true);
     });
@@ -507,9 +1069,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(302);
+      const result = await supertest(innerServer.listener).get('/').expect(302);
 
       expect(result.text).toBe('The document has moved');
       expect(result.header.location).toBe('/new-url');
@@ -530,12 +1090,10 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(500);
+      const result = await supertest(innerServer.listener).get('/').expect(500);
 
       expect(result.body.message).toBe('An internal server error occurred.');
-      expect(loggingServiceMock.collect(logger).error).toMatchInlineSnapshot(`
+      expect(loggingSystemMock.collect(logger).error).toMatchInlineSnapshot(`
         Array [
           Array [
             [Error: expected 'location' header to be set],
@@ -557,9 +1115,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(400);
+      const result = await supertest(innerServer.listener).get('/').expect(400);
 
       expect(result.body).toEqual({
         error: 'Bad Request',
@@ -578,9 +1134,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(400);
+      const result = await supertest(innerServer.listener).get('/').expect(400);
 
       expect(result.body).toEqual({
         error: 'Bad Request',
@@ -601,9 +1155,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(400);
+      const result = await supertest(innerServer.listener).get('/').expect(400);
 
       expect(result.body).toEqual({
         error: 'Bad Request',
@@ -613,6 +1165,116 @@ describe('Response factory', () => {
         },
         statusCode: 400,
       });
+    });
+
+    it('validate function in body', async () => {
+      const { server: innerServer, createRouter } = await server.setup(setupDeps);
+      const router = createRouter('/foo');
+
+      router.post(
+        {
+          path: '/',
+          validate: {
+            body: ({ bar, baz } = {}, { ok, badRequest }) => {
+              if (typeof bar === 'string' && typeof baz === 'number') {
+                return ok({ bar, baz });
+              } else {
+                return badRequest('Wrong payload', ['body']);
+              }
+            },
+          },
+        },
+        (context, req, res) => {
+          return res.ok({ body: req.body });
+        }
+      );
+
+      await server.start();
+
+      await supertest(innerServer.listener)
+        .post('/foo/')
+        .send({
+          bar: 'test',
+          baz: 123,
+        })
+        .expect(200)
+        .then((res) => {
+          expect(res.body).toEqual({ bar: 'test', baz: 123 });
+        });
+
+      await supertest(innerServer.listener)
+        .post('/foo/')
+        .send({
+          bar: 'test',
+          baz: '123',
+        })
+        .expect(400)
+        .then((res) => {
+          expect(res.body).toEqual({
+            error: 'Bad Request',
+            message: '[request body.body]: Wrong payload',
+            statusCode: 400,
+          });
+        });
+    });
+
+    it('@kbn/config-schema validation in body', async () => {
+      const { server: innerServer, createRouter } = await server.setup(setupDeps);
+      const router = createRouter('/foo');
+
+      router.post(
+        {
+          path: '/',
+          validate: {
+            body: schema.object({
+              bar: schema.string(),
+              baz: schema.number(),
+            }),
+          },
+        },
+        (context, req, res) => {
+          return res.ok({ body: req.body });
+        }
+      );
+
+      await server.start();
+
+      await supertest(innerServer.listener)
+        .post('/foo/')
+        .send({
+          bar: 'test',
+          baz: 123,
+        })
+        .expect(200)
+        .then((res) => {
+          expect(res.body).toEqual({ bar: 'test', baz: 123 });
+        });
+
+      await supertest(innerServer.listener)
+        .post('/foo/')
+        .send({
+          bar: 'test',
+          baz: '123', // Automatic casting happens
+        })
+        .expect(200)
+        .then((res) => {
+          expect(res.body).toEqual({ bar: 'test', baz: 123 });
+        });
+
+      await supertest(innerServer.listener)
+        .post('/foo/')
+        .send({
+          bar: 'test',
+          baz: 'test', // Can't cast it into number
+        })
+        .expect(400)
+        .then((res) => {
+          expect(res.body).toEqual({
+            error: 'Bad Request',
+            message: '[request body.baz]: expected value of type [number] but got [string]',
+            statusCode: 400,
+          });
+        });
     });
 
     it('401 Unauthorized', async () => {
@@ -631,9 +1293,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(401);
+      const result = await supertest(innerServer.listener).get('/').expect(401);
 
       expect(result.body.message).toBe('no access');
       expect(result.header['www-authenticate']).toBe('challenge');
@@ -649,9 +1309,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(401);
+      const result = await supertest(innerServer.listener).get('/').expect(401);
 
       expect(result.body.message).toBe('Unauthorized');
     });
@@ -667,9 +1325,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(403);
+      const result = await supertest(innerServer.listener).get('/').expect(403);
 
       expect(result.body.message).toBe('reason');
     });
@@ -684,9 +1340,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(403);
+      const result = await supertest(innerServer.listener).get('/').expect(403);
 
       expect(result.body.message).toBe('Forbidden');
     });
@@ -702,9 +1356,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(404);
+      const result = await supertest(innerServer.listener).get('/').expect(404);
 
       expect(result.body.message).toBe('file is not found');
     });
@@ -719,9 +1371,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(404);
+      const result = await supertest(innerServer.listener).get('/').expect(404);
 
       expect(result.body.message).toBe('Not Found');
     });
@@ -737,9 +1387,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(409);
+      const result = await supertest(innerServer.listener).get('/').expect(409);
 
       expect(result.body.message).toBe('stale version');
     });
@@ -754,9 +1402,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(409);
+      const result = await supertest(innerServer.listener).get('/').expect(409);
 
       expect(result.body.message).toBe('Conflict');
     });
@@ -775,9 +1421,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(418);
+      const result = await supertest(innerServer.listener).get('/').expect(418);
 
       expect(result.body).toEqual({
         error: "I'm a teapot",
@@ -801,9 +1445,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(500);
+      const result = await supertest(innerServer.listener).get('/').expect(500);
 
       expect(result.body).toEqual({
         error: 'Internal Server Error',
@@ -827,9 +1469,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(500);
+      const result = await supertest(innerServer.listener).get('/').expect(500);
 
       expect(result.body).toEqual({
         error: 'Internal Server Error',
@@ -852,16 +1492,14 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(500);
+      const result = await supertest(innerServer.listener).get('/').expect(500);
 
       expect(result.body).toEqual({
         error: 'Internal Server Error',
         message: 'An internal server error occurred.',
         statusCode: 500,
       });
-      expect(loggingServiceMock.collect(logger).error).toMatchInlineSnapshot(`
+      expect(loggingSystemMock.collect(logger).error).toMatchInlineSnapshot(`
         Array [
           Array [
             [Error: Unexpected Http status code. Expected from 400 to 599, but given: 200],
@@ -888,9 +1526,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(201);
+      const result = await supertest(innerServer.listener).get('/').expect(201);
 
       expect(result.header.location).toBe('somewhere');
     });
@@ -911,9 +1547,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(301);
+      const result = await supertest(innerServer.listener).get('/').expect(301);
 
       expect(result.header.location).toBe('/new-url');
     });
@@ -932,11 +1566,9 @@ describe('Response factory', () => {
 
       await server.start();
 
-      await supertest(innerServer.listener)
-        .get('/')
-        .expect(500);
+      await supertest(innerServer.listener).get('/').expect(500);
 
-      expect(loggingServiceMock.collect(logger).error).toMatchInlineSnapshot(`
+      expect(loggingSystemMock.collect(logger).error).toMatchInlineSnapshot(`
         Array [
           Array [
             [Error: expected 'location' header to be set],
@@ -959,9 +1591,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(401);
+      const result = await supertest(innerServer.listener).get('/').expect(401);
 
       expect(result.body.message).toBe('unauthorized');
     });
@@ -982,9 +1612,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(401);
+      const result = await supertest(innerServer.listener).get('/').expect(401);
 
       expect(result.body).toEqual({
         error: 'Unauthorized',
@@ -1010,9 +1638,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(401);
+      const result = await supertest(innerServer.listener).get('/').expect(401);
 
       expect(result.body).toEqual({
         error: 'Unauthorized',
@@ -1036,9 +1662,7 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(401);
+      const result = await supertest(innerServer.listener).get('/').expect(401);
 
       expect(result.body.message).toBe('Unauthorized');
     });
@@ -1056,12 +1680,10 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(500);
+      const result = await supertest(innerServer.listener).get('/').expect(500);
 
       expect(result.body.message).toBe('reason');
-      expect(loggingServiceMock.collect(logger).error).toHaveLength(0);
+      expect(loggingSystemMock.collect(logger).error).toHaveLength(0);
     });
 
     it('throws an error if not valid error is provided', async () => {
@@ -1077,12 +1699,10 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(500);
+      const result = await supertest(innerServer.listener).get('/').expect(500);
 
       expect(result.body.message).toBe('An internal server error occurred.');
-      expect(loggingServiceMock.collect(logger).error).toMatchInlineSnapshot(`
+      expect(loggingSystemMock.collect(logger).error).toMatchInlineSnapshot(`
         Array [
           Array [
             [Error: expected error message to be provided],
@@ -1103,12 +1723,10 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(500);
+      const result = await supertest(innerServer.listener).get('/').expect(500);
 
       expect(result.body.message).toBe('An internal server error occurred.');
-      expect(loggingServiceMock.collect(logger).error).toMatchInlineSnapshot(`
+      expect(loggingSystemMock.collect(logger).error).toMatchInlineSnapshot(`
         Array [
           Array [
             [Error: expected error message to be provided],
@@ -1128,12 +1746,10 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(500);
+      const result = await supertest(innerServer.listener).get('/').expect(500);
 
       expect(result.body.message).toBe('An internal server error occurred.');
-      expect(loggingServiceMock.collect(logger).error).toMatchInlineSnapshot(`
+      expect(loggingSystemMock.collect(logger).error).toMatchInlineSnapshot(`
         Array [
           Array [
             [Error: options.statusCode is expected to be set. given options: undefined],
@@ -1153,12 +1769,10 @@ describe('Response factory', () => {
 
       await server.start();
 
-      const result = await supertest(innerServer.listener)
-        .get('/')
-        .expect(500);
+      const result = await supertest(innerServer.listener).get('/').expect(500);
 
       expect(result.body.message).toBe('An internal server error occurred.');
-      expect(loggingServiceMock.collect(logger).error).toMatchInlineSnapshot(`
+      expect(loggingSystemMock.collect(logger).error).toMatchInlineSnapshot(`
         Array [
           Array [
             [Error: Unexpected Http status code. Expected from 100 to 599, but given: 20.],

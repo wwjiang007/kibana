@@ -8,24 +8,19 @@ import expect from '@kbn/expect';
 import { parse } from 'url';
 
 export default function canvasSmokeTest({ getService, getPageObjects }) {
-  const esArchiver = getService('esArchiver');
   const testSubjects = getService('testSubjects');
   const browser = getService('browser');
   const retry = getService('retry');
   const PageObjects = getPageObjects(['common']);
+  const esArchiver = getService('esArchiver');
 
   describe('smoke test', function () {
-    this.tags('smoke');
-    const workpadListSelector = 'canvasWorkpadLoaderTable canvasWorkpadLoaderWorkpad';
+    this.tags('includeFirefox');
+    const workpadListSelector = 'canvasWorkpadLoaderTable > canvasWorkpadLoaderWorkpad';
     const testWorkpadId = 'workpad-1705f884-6224-47de-ba49-ca224fe6ec31';
 
     before(async () => {
-      // init data
-      await esArchiver.loadIfNeeded('logstash_functional');
       await esArchiver.load('canvas/default');
-
-      // load canvas
-      // see also navigateToUrl(app, hash)
       await PageObjects.common.navigateToApp('canvas');
     });
 
@@ -58,7 +53,7 @@ export default function canvasSmokeTest({ getService, getPageObjects }) {
       await retry.try(async () => {
         // check for elements on the page
         const elements = await testSubjects.findAll(
-          'canvasWorkpadPage canvasWorkpadPageElementContent'
+          'canvasWorkpadPage > canvasWorkpadPageElementContent'
         );
         expect(elements).to.have.length(4);
 

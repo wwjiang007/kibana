@@ -17,15 +17,22 @@
  * under the License.
  */
 
-import { EsProvider } from './es';
+import { DeploymentProvider } from './deployment';
+import { LegacyEsProvider } from './legacy_es';
+import { ElasticsearchProvider } from './elasticsearch';
 import { EsArchiverProvider } from './es_archiver';
-// @ts-ignore not TS yet
 import { KibanaServerProvider } from './kibana_server';
 import { RetryProvider } from './retry';
+import { RandomnessProvider } from './randomness';
+import { SecurityServiceProvider } from './security';
 
 export const services = {
-  es: EsProvider,
+  deployment: DeploymentProvider,
+  legacyEs: LegacyEsProvider,
+  es: ElasticsearchProvider,
   esArchiver: EsArchiverProvider,
   kibanaServer: KibanaServerProvider,
   retry: RetryProvider,
+  randomness: RandomnessProvider,
+  security: SecurityServiceProvider,
 };

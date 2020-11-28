@@ -17,30 +17,33 @@
  * under the License.
  */
 
-import Boom from 'boom';
+import Boom from '@hapi/boom';
 
 import { IndexMapping } from '../../../mappings';
-import { SavedObjectsSchema } from '../../../schema';
-import { getQueryParams } from './query_params';
+import { getQueryParams, HasReferenceQueryParams, SearchOperator } from './query_params';
 import { getSortingParams } from './sorting_params';
+import { ISavedObjectTypeRegistry } from '../../../saved_objects_type_registry';
+
+type KueryNode = any;
 
 interface GetSearchDslOptions {
   type: string | string[];
   search?: string;
-  defaultSearchOperator?: string;
+  defaultSearchOperator?: SearchOperator;
   searchFields?: string[];
+  rootSearchFields?: string[];
   sortField?: string;
   sortOrder?: string;
-  namespace?: string;
-  hasReference?: {
-    type: string;
-    id: string;
-  };
+  namespaces?: string[];
+  typeToNamespacesMap?: Map<string, string[] | undefined>;
+  hasReference?: HasReferenceQueryParams | HasReferenceQueryParams[];
+  hasReferenceOperator?: SearchOperator;
+  kueryNode?: KueryNode;
 }
 
 export function getSearchDsl(
   mappings: IndexMapping,
-  schema: SavedObjectsSchema,
+  registry: ISavedObjectTypeRegistry,
   options: GetSearchDslOptions
 ) {
   const {
@@ -48,10 +51,14 @@ export function getSearchDsl(
     search,
     defaultSearchOperator,
     searchFields,
+    rootSearchFields,
     sortField,
     sortOrder,
-    namespace,
+    namespaces,
+    typeToNamespacesMap,
     hasReference,
+    hasReferenceOperator,
+    kueryNode,
   } = options;
 
   if (!type) {
@@ -63,16 +70,19 @@ export function getSearchDsl(
   }
 
   return {
-    ...getQueryParams(
-      mappings,
-      schema,
-      namespace,
+    ...getQueryParams({
+      registry,
+      namespaces,
       type,
+      typeToNamespacesMap,
       search,
       searchFields,
+      rootSearchFields,
       defaultSearchOperator,
-      hasReference
-    ),
+      hasReference,
+      hasReferenceOperator,
+      kueryNode,
+    }),
     ...getSortingParams(mappings, type, sortField, sortOrder),
   };
 }

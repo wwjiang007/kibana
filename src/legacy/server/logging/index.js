@@ -17,18 +17,16 @@
  * under the License.
  */
 
-import good from '@elastic/good';
-import loggingConfiguration from './configuration';
-import { logWithMetadata } from './log_with_metadata';
-
-export async function setupLogging(server, config) {
-  return await server.register({
-    plugin: good,
-    options: loggingConfiguration(config)
-  });
-}
+import { setupLogging, setupLoggingRotate, attachMetaData } from '@kbn/legacy-logging';
 
 export async function loggingMixin(kbnServer, server, config) {
-  logWithMetadata.decorateServer(server);
-  return await setupLogging(server, config);
+  server.decorate('server', 'logWithMetadata', (tags, message, metadata = {}) => {
+    server.log(tags, attachMetaData(message, metadata));
+  });
+
+  const loggingConfig = config.get('logging');
+  const opsInterval = config.get('ops.interval');
+
+  await setupLogging(server, loggingConfig, opsInterval);
+  await setupLoggingRotate(server, loggingConfig);
 }

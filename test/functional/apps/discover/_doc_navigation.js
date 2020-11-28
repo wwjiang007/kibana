@@ -19,39 +19,68 @@
 
 import expect from '@kbn/expect';
 
-const TEST_DOC_START_TIME = '2015-09-19 06:31:44.000';
-const TEST_DOC_END_TIME = '2015-09-23 18:31:44.000';
-const TEST_COLUMN_NAMES = ['@message'];
-const TEST_FILTER_COLUMN_NAMES = [['extension', 'jpg'], ['geo.src', 'IN']];
-
 export default function ({ getService, getPageObjects }) {
   const docTable = getService('docTable');
+  const filterBar = getService('filterBar');
   const testSubjects = getService('testSubjects');
-  const PageObjects = getPageObjects(['common', 'discover', 'timePicker']);
+  const PageObjects = getPageObjects(['common', 'discover', 'timePicker', 'context']);
   const esArchiver = getService('esArchiver');
+  const retry = getService('retry');
 
   describe('doc link in discover', function contextSize() {
-    this.tags('smoke');
-    before(async function () {
+    beforeEach(async function () {
       await esArchiver.loadIfNeeded('logstash_functional');
+      await esArchiver.loadIfNeeded('discover');
+      await PageObjects.timePicker.setDefaultAbsoluteRangeViaUiSettings();
       await PageObjects.common.navigateToApp('discover');
-      await PageObjects.timePicker.setAbsoluteRange(TEST_DOC_START_TIME, TEST_DOC_END_TIME);
-      await Promise.all(TEST_COLUMN_NAMES.map((columnName) => (
-        PageObjects.discover.clickFieldListItemAdd(columnName)
-      )));
-      await Promise.all(TEST_FILTER_COLUMN_NAMES.map(async ([columnName, value]) => {
-        await PageObjects.discover.clickFieldListItem(columnName);
-        await PageObjects.discover.clickFieldListPlusFilter(columnName, value);
-      }));
+      await PageObjects.discover.waitForDocTableLoadingComplete();
     });
 
     it('should open the doc view of the selected document', async function () {
       // navigate to the doc view
       await docTable.clickRowToggle({ rowIndex: 0 });
-      await (await docTable.getRowActions({ rowIndex: 0 }))[1].click();
+
+      // click the open action
+      await retry.try(async () => {
+        const rowActions = await docTable.getRowActions({ rowIndex: 0 });
+        if (!rowActions.length) {
+          throw new Error('row actions empty, trying again');
+        }
+        await rowActions[1].click();
+      });
 
       const hasDocHit = await testSubjects.exists('doc-hit');
       expect(hasDocHit).to.be(true);
+    });
+
+    it('add filter should create an exists filter if value is null (#7189)', async function () {
+      await PageObjects.discover.waitUntilSearchingHasFinished();
+      // Filter special document
+      await filterBar.addFilter('agent', 'is', 'Missing/Fields');
+      await PageObjects.discover.waitUntilSearchingHasFinished();
+
+      await retry.try(async () => {
+        // navigate to the doc view
+        await docTable.clickRowToggle({ rowIndex: 0 });
+
+        const details = await docTable.getDetailsRow();
+        await docTable.addInclusiveFilter(details, 'referer');
+        await PageObjects.discover.waitUntilSearchingHasFinished();
+
+        const hasInclusiveFilter = await filterBar.hasFilter(
+          'referer',
+          'exists',
+          true,
+          false,
+          true
+        );
+        expect(hasInclusiveFilter).to.be(true);
+
+        await docTable.removeInclusiveFilter(details, 'referer');
+        await PageObjects.discover.waitUntilSearchingHasFinished();
+        const hasExcludeFilter = await filterBar.hasFilter('referer', 'exists', true, false, false);
+        expect(hasExcludeFilter).to.be(true);
+      });
     });
   });
 }

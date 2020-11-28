@@ -4,10 +4,24 @@
  * you may not use this file except in compliance with the Elastic License.
  */
 
-import Boom from 'boom';
+import Boom from '@hapi/boom';
+import { CustomHttpResponseOptions, ResponseError } from '../../../../src/core/server';
 
 export function wrapError(error: any) {
   return Boom.boomify(error, { statusCode: getErrorStatusCode(error) });
+}
+
+/**
+ * Wraps error into error suitable for Core's custom error response.
+ * @param error Any error instance.
+ */
+export function wrapIntoCustomErrorResponse(error: any) {
+  const wrappedError = wrapError(error);
+  return {
+    body: wrappedError,
+    headers: wrappedError.output.headers,
+    statusCode: wrappedError.output.statusCode,
+  } as CustomHttpResponseOptions<ResponseError>;
 }
 
 /**

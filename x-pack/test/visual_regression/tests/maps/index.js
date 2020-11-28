@@ -15,10 +15,9 @@ export default function ({ loadTestFile, getService }) {
       await esArchiver.load('maps/data');
       await esArchiver.load('maps/kibana');
       await kibanaServer.uiSettings.replace({
-        'defaultIndex': 'logstash-*'
+        defaultIndex: 'logstash-*',
       });
       await browser.setWindowSize(1600, 1000);
-
     });
 
     after(async () => {
@@ -26,7 +25,7 @@ export default function ({ loadTestFile, getService }) {
       await esArchiver.unload('maps/kibana');
     });
 
-    this.tags('ciGroup5');
+    this.tags('ciGroup10');
     loadTestFile(require.resolve('./vector_styling'));
   });
 }

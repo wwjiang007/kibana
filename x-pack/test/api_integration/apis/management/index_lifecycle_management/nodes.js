@@ -29,7 +29,8 @@ export default function ({ getService }) {
         const nodesIds = Object.keys(nodeStats.nodes);
 
         const { body } = await loadNodes().expect(200);
-        expect(body[NODE_CUSTOM_ATTRIBUTE]).to.eql(nodesIds);
+        expect(body.isUsingDeprecatedDataRoleConfig).to.eql(false);
+        expect(body.nodesByAttributes[NODE_CUSTOM_ATTRIBUTE]).to.eql(nodesIds);
       });
     });
 

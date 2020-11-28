@@ -24,11 +24,8 @@ export default function ({ getPageObjects }) {
 
   describe('expression typeahead', () => {
     before(async () => {
-      const fromTime = '2015-09-19 06:31:44.000';
-      const toTime = '2015-09-23 18:31:44.000';
-
       await PageObjects.timelion.initTests();
-      await PageObjects.timePicker.setAbsoluteRange(fromTime, toTime);
+      await PageObjects.timePicker.setDefaultAbsoluteRange();
     });
 
     it('should display function suggestions filtered by function name', async () => {
@@ -89,7 +86,7 @@ export default function ({ getPageObjects }) {
           await PageObjects.timelion.updateExpression(',split');
           await PageObjects.timelion.clickSuggestion();
           const suggestions = await PageObjects.timelion.getSuggestionItemsText();
-          expect(suggestions.length).to.eql(52);
+          expect(suggestions.length).to.eql(51);
           expect(suggestions[0].includes('@message.raw')).to.eql(true);
           await PageObjects.timelion.clickSuggestion(10);
         });

@@ -13,23 +13,23 @@ export function PipelineEditorProvider({ getService }) {
   const testSubjects = getService('testSubjects');
 
   // test subject selectors
-  const SUBJ_CONTAINER = 'pipelineEdit';
-  const getContainerSubjForId = id => `pipelineEdit-${id}`;
-  const SUBJ_INPUT_ID = 'pipelineEdit inputId';
-  const SUBJ_INPUT_DESCRIPTION = 'pipelineEdit inputDescription';
-  const SUBJ_UI_ACE_PIPELINE = 'pipelineEdit acePipeline';
+  const SUBJ_CONTAINER = '~pipelineEdit';
+  const getContainerSubjForId = (id) => `~pipelineEdit-${id}`;
+  const SUBJ_INPUT_ID = '~pipelineEdit > inputId';
+  const SUBJ_INPUT_DESCRIPTION = '~pipelineEdit > inputDescription';
+  const SUBJ_UI_ACE_PIPELINE = '~pipelineEdit > acePipeline';
 
-  const SUBJ_INPUT_WORKERS = 'pipelineEdit inputWorkers';
-  const SUBJ_INPUT_BATCH_SIZE = 'pipelineEdit inputBatchSize';
-  const SUBJ_SELECT_QUEUE_TYPE = 'pipelineEdit selectQueueType';
-  const SUBJ_INPUT_QUEUE_MAX_BYTES_NUMBER = 'pipelineEdit inputQueueMaxBytesNumber';
-  const SUBJ_SELECT_QUEUE_MAX_BYTES_UNITS = 'pipelineEdit selectQueueMaxBytesUnits';
-  const SUBJ_INPUT_QUEUE_CHECKPOINT_WRITES = 'pipelineEdit inputQueueCheckpointWrites';
+  const SUBJ_INPUT_WORKERS = '~pipelineEdit > inputWorkers';
+  const SUBJ_INPUT_BATCH_SIZE = '~pipelineEdit > inputBatchSize';
+  const SUBJ_SELECT_QUEUE_TYPE = '~pipelineEdit > selectQueueType';
+  const SUBJ_INPUT_QUEUE_MAX_BYTES_NUMBER = '~pipelineEdit > inputQueueMaxBytesNumber';
+  const SUBJ_SELECT_QUEUE_MAX_BYTES_UNITS = '~pipelineEdit > selectQueueMaxBytesUnits';
+  const SUBJ_INPUT_QUEUE_CHECKPOINT_WRITES = '~pipelineEdit > inputQueueCheckpointWrites';
 
-  const SUBJ_BTN_SAVE = 'pipelineEdit btnSavePipeline';
-  const SUBJ_BTN_CANCEL = 'pipelineEdit btnCancel';
-  const SUBJ_BTN_DELETE = 'pipelineEdit btnDeletePipeline';
-  const SUBJ_LNK_BREADCRUMB_MANAGEMENT = 'breadcrumbs lnkBreadcrumb0';
+  const SUBJ_BTN_SAVE = '~pipelineEdit > btnSavePipeline';
+  const SUBJ_BTN_CANCEL = '~pipelineEdit > btnCancel';
+  const SUBJ_BTN_DELETE = '~pipelineEdit > btnDeletePipeline';
+  const SUBJ_LNK_BREADCRUMB_MANAGEMENT = 'breadcrumbs > lnkBreadcrumb0';
 
   const DEFAULT_INPUT_VALUES = {
     id: '',
@@ -43,7 +43,7 @@ export function PipelineEditorProvider({ getService }) {
     queueCheckpointWrites: '1024',
   };
 
-  return new class PipelineEditor {
+  return new (class PipelineEditor {
     async clickSave() {
       await testSubjects.click(SUBJ_BTN_SAVE);
     }
@@ -91,9 +91,10 @@ export function PipelineEditorProvider({ getService }) {
      *  @return {Promise<undefined>}
      */
     async assertExists() {
-      await retry.waitFor('pipeline editor visible', async () => (
-        await testSubjects.exists(SUBJ_CONTAINER)
-      ));
+      await retry.waitFor(
+        'pipeline editor visible',
+        async () => await testSubjects.exists(SUBJ_CONTAINER)
+      );
     }
 
     /**
@@ -103,9 +104,10 @@ export function PipelineEditorProvider({ getService }) {
      *  @return {Promise<undefined>}
      */
     async assertEditorId(id) {
-      await retry.waitFor(`editor id to be "${id}"`, async () => (
-        await testSubjects.exists(getContainerSubjForId(id))
-      ));
+      await retry.waitFor(
+        `editor id to be "${id}"`,
+        async () => await testSubjects.exists(getContainerSubjForId(id))
+      );
     }
 
     /**
@@ -141,9 +143,10 @@ export function PipelineEditorProvider({ getService }) {
     }
 
     async assertNoDeleteButton() {
-      await retry.waitFor(`delete button to be hidden`, async () => (
-        !await testSubjects.exists(SUBJ_BTN_DELETE)
-      ));
+      await retry.waitFor(
+        `delete button to be hidden`,
+        async () => !(await testSubjects.exists(SUBJ_BTN_DELETE))
+      );
     }
-  }();
+  })();
 }

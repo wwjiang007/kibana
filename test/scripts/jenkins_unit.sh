@@ -1,10 +1,28 @@
 #!/usr/bin/env bash
 
-set -e
-trap 'node "$KIBANA_DIR/src/dev/failed_tests/cli"' EXIT
+source test/scripts/jenkins_test_setup.sh
 
-export TEST_BROWSER_HEADLESS=1
+rename_coverage_file() {
+  test -f target/kibana-coverage/jest/coverage-final.json \
+    && mv target/kibana-coverage/jest/coverage-final.json \
+    target/kibana-coverage/jest/$1-coverage-final.json
+}
 
-"$(FORCE_COLOR=0 yarn bin)/grunt" jenkins:unit --dev;
-
-source "$KIBANA_DIR/test/scripts/jenkins_xpack.sh"
+if [[ -z "$CODE_COVERAGE" ]] ; then
+  "$(FORCE_COLOR=0 yarn bin)/grunt" jenkins:unit --dev;
+else
+  echo " -> Running jest tests with coverage"
+  node scripts/jest --ci --verbose --coverage
+  rename_coverage_file "oss"
+  echo ""
+  echo ""
+  echo " -> Running jest integration tests with coverage"
+  node --max-old-space-size=8192 scripts/jest_integration --ci --verbose --coverage || true;
+  rename_coverage_file "oss-integration"
+  echo ""
+  echo ""
+  echo " -> Running mocha tests with coverage"
+  yarn run grunt "test:mochaCoverage";
+  echo ""
+  echo ""
+fi

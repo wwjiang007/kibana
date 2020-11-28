@@ -19,4 +19,5 @@
 
 export { Registry } from './lib/registry';
 
-export { fromExpression, Ast } from './lib/ast';
+export { fromExpression, toExpression, Ast, ExpressionFunctionAST } from './lib/ast';
+export { getType } from './lib/get_type';

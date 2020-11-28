@@ -26,10 +26,10 @@ import chalk from 'chalk';
 
 import treeKill from 'tree-kill';
 import { promisify } from 'util';
-const treeKillAsync = promisify(treeKill);
+const treeKillAsync = promisify((...args: [number, string, any]) => treeKill(...args));
 
 import { ToolingLog } from '../tooling_log';
-import { observeLines } from './observe_lines';
+import { observeLines } from '../stdio';
 import { createCliError } from './errors';
 
 const SECOND = 1000;
@@ -87,21 +87,22 @@ export function startProc(name: string, options: ProcOptions, log: ToolingLog) {
     cwd,
     env,
     stdio: ['pipe', 'pipe', 'pipe'],
+    preferLocal: true,
   });
 
   if (stdin) {
-    childProcess.stdin.end(stdin, 'utf8');
+    childProcess.stdin!.end(stdin, 'utf8'); // TypeScript note: As long as the proc stdio[1] is 'pipe', then stdin will not be null
   } else {
-    childProcess.stdin.end();
+    childProcess.stdin!.end(); // TypeScript note: As long as the proc stdio[1] is 'pipe', then stdin will not be null
   }
 
   let stopCalled = false;
 
   const outcome$: Rx.Observable<number | null> = Rx.race(
     // observe first exit event
-    Rx.fromEvent(childProcess, 'exit').pipe(
+    Rx.fromEvent<[number]>(childProcess, 'exit').pipe(
       take(1),
-      map(([code]: [number]) => {
+      map(([code]) => {
         if (stopCalled) {
           return null;
         }
@@ -117,15 +118,15 @@ export function startProc(name: string, options: ProcOptions, log: ToolingLog) {
     // observe first error event
     Rx.fromEvent(childProcess, 'error').pipe(
       take(1),
-      mergeMap(err => Rx.throwError(err))
+      mergeMap((err) => Rx.throwError(err))
     )
   ).pipe(share());
 
   const lines$ = Rx.merge(
-    observeLines(childProcess.stdout),
-    observeLines(childProcess.stderr)
+    observeLines(childProcess.stdout!), // TypeScript note: As long as the proc stdio[1] is 'pipe', then stdout will not be null
+    observeLines(childProcess.stderr!) // TypeScript note: As long as the proc stdio[1] is 'pipe', then stderr will not be null
   ).pipe(
-    tap(line => log.write(` ${chalk.gray('proc')} [${chalk.gray(name)}] ${line}`)),
+    tap((line) => log.write(` ${chalk.gray('proc')} [${chalk.gray(name)}] ${line}`)),
     share()
   );
 

@@ -8,12 +8,16 @@ import expect from '@kbn/expect';
 
 export default function ({ getService, getPageObjects }) {
   const PageObjects = getPageObjects(['maps', 'common']);
-  const browser = getService('browser');
   const retry = getService('retry');
+  const security = getService('security');
 
-  describe('full screen mode', () => {
+  describe('maps full screen mode', () => {
     before(async () => {
+      await security.testUser.setRoles(['global_maps_all']);
       await PageObjects.maps.openNewMap();
+    });
+    after(async () => {
+      await security.testUser.restoreDefaults();
     });
 
     it('full screen button should exist', async () => {
@@ -40,7 +44,7 @@ export default function ({ getService, getPageObjects }) {
 
     it('exits when the text button is clicked on', async () => {
       const logoButton = await PageObjects.maps.getExitFullScreenLogoButton();
-      await browser.moveMouseTo(logoButton);
+      await logoButton.moveMouseTo();
       await PageObjects.maps.clickExitFullScreenTextButton();
 
       await retry.try(async () => {

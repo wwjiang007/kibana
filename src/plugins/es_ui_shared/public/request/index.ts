@@ -17,10 +17,5 @@
  * under the License.
  */
 
-export {
-  SendRequestConfig,
-  SendRequestResponse,
-  UseRequestConfig,
-  sendRequest,
-  useRequest,
-} from './request';
+export { SendRequestConfig, SendRequestResponse, sendRequest } from './send_request';
+export { UseRequestConfig, UseRequestResponse, useRequest } from './use_request';

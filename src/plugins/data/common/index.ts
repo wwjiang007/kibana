@@ -17,4 +17,20 @@
  * under the License.
  */
 
-export * from './expressions';
+export * from './constants';
+export * from './es_query';
+export * from './field_formats';
+export * from './index_patterns';
+export * from './kbn_field_types';
+export * from './query';
+export * from './search';
+export * from './types';
+export * from './utils';
+export * from './exports';
+
+/**
+ * Use data plugin interface instead
+ * @deprecated
+ */
+
+export { IndexPatternAttributes } from './types';

@@ -17,50 +17,63 @@ export function InfraSourceConfigurationFormProvider({ getService }: FtrProvider
      * Indices and fields
      */
     async getNameInput(): Promise<WebElementWrapper> {
-      return await testSubjects.findDescendant('nameInput', await this.getForm());
+      return await testSubjects.findDescendant('~nameInput', await this.getForm());
     },
     async getLogIndicesInput(): Promise<WebElementWrapper> {
-      return await testSubjects.findDescendant('logIndicesInput', await this.getForm());
+      return await testSubjects.findDescendant('~logIndicesInput', await this.getForm());
     },
     async getMetricIndicesInput(): Promise<WebElementWrapper> {
-      return await testSubjects.findDescendant('metricIndicesInput', await this.getForm());
+      return await testSubjects.findDescendant('~metricIndicesInput', await this.getForm());
     },
 
     /**
      * Logs
      */
     async getAddLogColumnButton(): Promise<WebElementWrapper> {
-      return await testSubjects.findDescendant('addLogColumnButton', await this.getForm());
+      return await testSubjects.findDescendant('~addLogColumnButton', await this.getForm());
     },
     async getAddLogColumnPopover(): Promise<WebElementWrapper> {
-      return await testSubjects.find('addLogColumnPopover');
+      return await testSubjects.find('~addLogColumnPopover');
     },
     async addTimestampLogColumn() {
-      await (await this.getAddLogColumnButton()).click();
-      await retry.try(async () => {
-        await (await testSubjects.findDescendant(
-          'addTimestampLogColumn',
-          await this.getAddLogColumnPopover()
-        )).click();
+      // try to open the popover
+      const popover = await retry.try(async () => {
+        await (await this.getAddLogColumnButton()).click();
+        return this.getAddLogColumnPopover();
       });
+
+      // try to select the timestamp field
+      await retry.try(async () => {
+        await (await testSubjects.findDescendant('~addTimestampLogColumn', popover)).click();
+      });
+
+      // wait for timestamp panel to show up
+      await testSubjects.findDescendant('~systemLogColumnPanel:Timestamp', await this.getForm());
     },
     async addFieldLogColumn(fieldName: string) {
-      await (await this.getAddLogColumnButton()).click();
-      await retry.try(async () => {
-        const popover = await this.getAddLogColumnPopover();
-        await (await testSubjects.findDescendant('fieldSearchInput', popover)).type(fieldName);
-        await (await testSubjects.findDescendant(
-          `addFieldLogColumn:${fieldName}`,
-          popover
-        )).click();
+      // try to open the popover
+      const popover = await retry.try(async () => {
+        await (await this.getAddLogColumnButton()).click();
+        return this.getAddLogColumnPopover();
       });
+
+      // try to select the given field
+      await retry.try(async () => {
+        await (await testSubjects.findDescendant('~fieldSearchInput', popover)).type(fieldName);
+        await (
+          await testSubjects.findDescendant(`~addFieldLogColumn:${fieldName}`, popover)
+        ).click();
+      });
+
+      // wait for field panel to show up
+      await testSubjects.findDescendant(`~fieldLogColumnPanel:${fieldName}`, await this.getForm());
     },
     async getLogColumnPanels(): Promise<WebElementWrapper[]> {
-      return await testSubjects.findAllDescendant('logColumnPanel', await this.getForm());
+      return await testSubjects.findAllDescendant('~logColumnPanel', await this.getForm());
     },
     async removeLogColumn(columnIndex: number) {
       const logColumnPanel = (await this.getLogColumnPanels())[columnIndex];
-      await (await testSubjects.findDescendant('removeLogColumnButton', logColumnPanel)).click();
+      await (await testSubjects.findDescendant('~removeLogColumnButton', logColumnPanel)).click();
       await testSubjects.waitForDeleted(logColumnPanel);
     },
     async removeAllLogColumns() {
@@ -73,14 +86,14 @@ export function InfraSourceConfigurationFormProvider({ getService }: FtrProvider
 
       const logColumnPanel = (await this.getLogColumnPanels())[sourceIndex];
       const moveLogColumnHandle = await testSubjects.findDescendant(
-        'moveLogColumnHandle',
+        '~moveLogColumnHandle',
         logColumnPanel
       );
       await moveLogColumnHandle.focus();
       const movementDifference = destinationIndex - sourceIndex;
       await moveLogColumnHandle.pressKeys(browser.keys.SPACE);
       for (let i = 0; i < Math.abs(movementDifference); i++) {
-        await new Promise(res => setTimeout(res, KEY_PRESS_DELAY_MS));
+        await new Promise((res) => setTimeout(res, KEY_PRESS_DELAY_MS));
         if (movementDifference > 0) {
           await moveLogColumnHandle.pressKeys(browser.keys.ARROW_DOWN);
         } else {
@@ -88,24 +101,23 @@ export function InfraSourceConfigurationFormProvider({ getService }: FtrProvider
         }
       }
       await moveLogColumnHandle.pressKeys(browser.keys.SPACE);
-      await new Promise(res => setTimeout(res, KEY_PRESS_DELAY_MS));
+      await new Promise((res) => setTimeout(res, KEY_PRESS_DELAY_MS));
     },
 
     /**
      * Form
      */
     async getForm(): Promise<WebElementWrapper> {
-      return await testSubjects.find('sourceConfigurationContent');
+      return await testSubjects.find('~sourceConfigurationContent');
     },
     async saveConfiguration() {
-      await (await testSubjects.findDescendant(
-        'applySettingsButton',
-        await this.getForm()
-      )).click();
+      await (
+        await testSubjects.findDescendant('~applySettingsButton', await this.getForm())
+      ).click();
 
       await retry.try(async () => {
         const element = await testSubjects.findDescendant(
-          'applySettingsButton',
+          '~applySettingsButton',
           await this.getForm()
         );
         return !(await element.isEnabled());
